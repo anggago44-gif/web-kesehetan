@@ -1,0 +1,664 @@
+  <script>
+    // ================= KONFIGURASI MQTT =================
+    const MQTT_CONFIG = {
+      broker: 'wss://broker.hivemq.com:8000/mqtt',
+      options: {
+        clientId: 'web_dashboard_' + Math.random().toString(16).substr(2, 8),
+        keepalive: 60,
+        reconnectPeriod: 5000,
+        connectTimeout: 30000,
+        clean: true,
+      },
+      topics: {
+        readings: 'sensorReadings',  // Topic dari Arduino
+        control: 'sensorControl'     // Topic untuk kontrol
+      }
+    };
+
+    // ================= STATE =================
+    let mqttClient = null;
+    let isConnected = false;
+    let logData = [];
+    let logCounter = 0;
+    let ecgBuffer = [];
+    const ECG_BUFFER_SIZE = 150;
+    let isLogging = false;
+    let logInterval = null;
+    let lastValues = {};
+
+    // ================= MQTT FUNCTIONS =================
+    function connectMQTT() {
+      updateMQTTStatus('Connecting...', 'connecting');
+      
+      try {
+        mqttClient = mqtt.connect(MQTT_CONFIG.broker, MQTT_CONFIG.options);
+        
+        mqttClient.on('connect', () => {
+          console.log('[MQTT] Connected');
+          isConnected = true;
+          updateMQTTStatus('Online', 'online');
+          document.getElementById('liveDot').className = 'live-dot';
+          document.getElementById('connText').textContent = 'Online';
+          
+          mqttClient.subscribe(MQTT_CONFIG.topics.readings);
+          mqttClient.subscribe(MQTT_CONFIG.topics.control);
+          console.log('[MQTT] Subscribed to:', MQTT_CONFIG.topics.readings);
+        });
+        
+        mqttClient.on('message', (topic, message) => {
+          const msg = message.toString();
+          console.log('[MQTT] Received:', topic);
+          
+          if (topic === MQTT_CONFIG.topics.readings) {
+            processSensorData(msg);
+          }
+        });
+        
+        mqttClient.on('error', (err) => {
+          console.error('[MQTT] Error:', err);
+          updateMQTTStatus('Error', 'offline');
+          document.getElementById('liveDot').className = 'live-dot off';
+          document.getElementById('connText').textContent = 'Error';
+        });
+        
+        mqttClient.on('close', () => {
+          console.log('[MQTT] Disconnected');
+          isConnected = false;
+          updateMQTTStatus('Offline', 'offline');
+          document.getElementById('liveDot').className = 'live-dot off';
+          document.getElementById('connText').textContent = 'Offline';
+        });
+        
+        mqttClient.on('reconnect', () => {
+          console.log('[MQTT] Reconnecting...');
+          updateMQTTStatus('Reconnecting...', 'connecting');
+        });
+        
+      } catch (err) {
+        console.error('[MQTT] Connection error:', err);
+        updateMQTTStatus('Error', 'offline');
+        setTimeout(connectMQTT, 5000);
+      }
+    }
+
+    function sendCommand(command) {
+      if (!isConnected || !mqttClient) {
+        alert('MQTT tidak terhubung! Periksa koneksi.');
+        return;
+      }
+      
+      mqttClient.publish(MQTT_CONFIG.topics.control, command);
+      console.log('[MQTT] Command sent:', command);
+      
+      // Feedback visual
+      const btns = document.querySelectorAll('.nav-item, .btn');
+      btns.forEach(btn => {
+        if (btn.textContent && btn.textContent.includes('Start')) {
+          btn.textContent = '✅ Sent';
+          setTimeout(() => { btn.textContent = '▶ Start'; }, 1500);
+        }
+      });
+    }
+
+    function updateMQTTStatus(text, state) {
+      // Update status di sidebar
+      const connText = document.getElementById('connText');
+      if (connText) connText.textContent = text;
+      
+      const liveDot = document.getElementById('liveDot');
+      if (liveDot) {
+        liveDot.className = 'live-dot' + (state === 'online' ? '' : ' off');
+      }
+    }
+
+    // ================= PROCESS SENSOR DATA =================
+    function processSensorData(jsonStr) {
+      try {
+        const data = JSON.parse(jsonStr);
+        
+        // Update Heart Rate
+        if (data.heartRate !== undefined && data.heartRate > 0) {
+          lastValues.heartRate = data.heartRate;
+          document.getElementById('bpm').textContent = data.heartRate;
+          updateBadge('bpmBadge', data.heartRate, 60, 100);
+          updateBar('bpmBar', data.heartRate, 60, 200);
+          
+          // Update heart icon animation
+          const heartIcon = document.getElementById('heartIcon');
+          if (heartIcon) {
+            heartIcon.style.setProperty('--beat-dur', (60 / data.heartRate) + 's');
+          }
+        }
+        
+        // Update SpO2
+        if (data.spo2 !== undefined && data.spo2 > 0) {
+          lastValues.spo2 = data.spo2;
+          document.getElementById('spo2').textContent = data.spo2;
+          updateBadge('spo2Badge', data.spo2, 95, 100);
+          updateBar('spo2Bar', data.spo2, 70, 100);
+        }
+        
+        // Update Body Temperature
+        if (data.temperature !== undefined && data.temperature > 0) {
+          lastValues.temperature = data.temperature;
+          document.getElementById('bodyTemp').textContent = data.temperature.toFixed(1);
+          updateBadge('tempBadge', data.temperature, 36.1, 37.2);
+          updateBar('bodyTempBar', data.temperature, 35, 39);
+        }
+        
+        // Update Raw Temperature
+        if (data.tempRaw !== undefined && data.tempRaw > 0) {
+          lastValues.tempRaw = data.tempRaw;
+        }
+        
+        // Update Blood Pressure
+        if (data.systolic !== undefined && data.systolic > 0) {
+          lastValues.systolic = data.systolic;
+          document.getElementById('systolic').textContent = data.systolic;
+        }
+        
+        if (data.diastolic !== undefined && data.diastolic > 0) {
+          lastValues.diastolic = data.diastolic;
+          document.getElementById('diastolic').textContent = data.diastolic;
+          updateBadge('bpBadge', lastValues.systolic || data.systolic, 90, 120);
+        }
+        
+        // Update ECG Raw Wave
+        if (data.raw !== undefined) {
+          updateECG(data.raw);
+        }
+        
+        // Update timestamp
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+        document.getElementById('lastUpdate').textContent = timeStr;
+        document.getElementById('clock').textContent = timeStr;
+        
+        // Update alert badges
+        updateAlerts(data);
+        
+        // Log data if logging is active
+        if (isLogging && (data.heartRate !== undefined || data.spo2 !== undefined)) {
+          addLogEntry(data);
+        }
+        
+      } catch (err) {
+        console.error('Parse error:', err);
+      }
+    }
+
+    // ================= UPDATE FUNCTIONS =================
+    function updateBadge(elementId, value, min, max) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      
+      if (value === undefined || value === null || value === 0) {
+        el.textContent = 'WAIT';
+        el.className = 'badge watch';
+        return;
+      }
+      
+      if (value >= min && value <= max) {
+        el.textContent = 'NORMAL';
+        el.className = 'badge good';
+      } else if (value < min) {
+        el.textContent = 'LOW';
+        el.className = 'badge watch';
+      } else {
+        el.textContent = 'HIGH';
+        el.className = 'badge bad';
+      }
+    }
+
+    function updateBar(elementId, value, min, max) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      
+      const percentage = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+      el.style.width = percentage + '%';
+    }
+
+    function updateECG(rawValue) {
+      // Normalize raw value
+      let normalized = 0;
+      if (rawValue > 100) {
+        normalized = (rawValue / 20) - 50;
+        normalized = Math.max(-120, Math.min(120, normalized));
+      } else {
+        normalized = rawValue / 5;
+      }
+      
+      ecgBuffer.push(normalized);
+      if (ecgBuffer.length > ECG_BUFFER_SIZE) {
+        ecgBuffer.shift();
+      }
+      
+      drawECG(ecgBuffer);
+    }
+
+    // ================= ECG CANVAS DRAWING =================
+    function drawECG(data) {
+      const canvas = document.getElementById('ecgCanvas');
+      if (!canvas) return;
+      
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width || 400;
+      canvas.height = rect.height || 200;
+      
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      
+      ctx.clearRect(0, 0, w, h);
+      
+      if (data.length < 2) return;
+      
+      // Grid lines
+      ctx.strokeStyle = 'rgba(103, 232, 249, 0.08)';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x < w; x += 24) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y < h; y += 24) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+      
+      // ECG line
+      ctx.beginPath();
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = 'rgba(52, 211, 153, 0.3)';
+      ctx.shadowBlur = 8;
+      
+      const step = w / data.length;
+      const midY = h / 2;
+      const scale = h / 3;
+      
+      for (let i = 0; i < data.length; i++) {
+        const x = i * step;
+        const y = midY - (data[i] / 120) * scale;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // ================= ALERTS UPDATE =================
+    function updateAlerts(data) {
+      const alerts = {
+        heartRate: { id: 'alertRow1', title: 'alertTitle1', msg: 'alertMsg1', pill: 'alertPill1', icon: 'alertIcon1' },
+        spo2: { id: 'alertRow3', title: 'alertTitle3', msg: 'alertMsg3', pill: 'alertPill3', icon: 'alertIcon3' },
+        temperature: { id: 'alertRow4', title: 'alertTitle4', msg: 'alertMsg4', pill: 'alertPill4', icon: 'alertIcon4' }
+      };
+      
+      let warnCount = 0;
+      let okCount = 0;
+      let infoCount = 0;
+      
+      // Heart Rate Alert
+      if (data.heartRate !== undefined && data.heartRate > 0) {
+        const hr = data.heartRate;
+        const row = document.getElementById(alerts.heartRate.id);
+        if (hr >= 60 && hr <= 100) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById(alerts.heartRate.pill).textContent = 'NORMAL';
+          document.getElementById(alerts.heartRate.pill).className = 'alert-pill ok';
+          document.getElementById(alerts.heartRate.msg).textContent = `Heart rate: ${hr} BPM (Normal)`;
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-warn glass';
+          document.getElementById(alerts.heartRate.pill).textContent = hr < 60 ? 'LOW' : 'HIGH';
+          document.getElementById(alerts.heartRate.pill).className = 'alert-pill warn';
+          document.getElementById(alerts.heartRate.msg).textContent = `Heart rate: ${hr} BPM (${hr < 60 ? 'Bradycardia' : 'Tachycardia'})`;
+          warnCount++;
+        }
+      } else {
+        infoCount++;
+      }
+      
+      // SpO2 Alert
+      if (data.spo2 !== undefined && data.spo2 > 0) {
+        const spo2 = data.spo2;
+        const row = document.getElementById(alerts.spo2.id);
+        if (spo2 >= 95) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById(alerts.spo2.pill).textContent = 'NORMAL';
+          document.getElementById(alerts.spo2.pill).className = 'alert-pill ok';
+          document.getElementById(alerts.spo2.msg).textContent = `SpO2: ${spo2}% (Normal)`;
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-bad glass';
+          document.getElementById(alerts.spo2.pill).textContent = 'LOW';
+          document.getElementById(alerts.spo2.pill).className = 'alert-pill bad';
+          document.getElementById(alerts.spo2.msg).textContent = `SpO2: ${spo2}% (Hypoxemia)`;
+          warnCount++;
+        }
+      } else {
+        infoCount++;
+      }
+      
+      // Temperature Alert
+      if (data.temperature !== undefined && data.temperature > 0) {
+        const temp = data.temperature;
+        const row = document.getElementById(alerts.temperature.id);
+        if (temp >= 36.1 && temp <= 37.2) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById(alerts.temperature.pill).textContent = 'NORMAL';
+          document.getElementById(alerts.temperature.pill).className = 'alert-pill ok';
+          document.getElementById(alerts.temperature.msg).textContent = `Body temp: ${temp.toFixed(1)}°C (Normal)`;
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-warn glass';
+          document.getElementById(alerts.temperature.pill).textContent = temp < 36.1 ? 'LOW' : 'HIGH';
+          document.getElementById(alerts.temperature.pill).className = 'alert-pill warn';
+          document.getElementById(alerts.temperature.msg).textContent = `Body temp: ${temp.toFixed(1)}°C (${temp < 36.1 ? 'Hypothermia' : 'Fever'})`;
+          warnCount++;
+        }
+      } else {
+        infoCount++;
+      }
+      
+      // Update summary
+      document.getElementById('alertWarnCount').textContent = warnCount;
+      document.getElementById('alertOkCount').textContent = okCount;
+      document.getElementById('alertInfoCount').textContent = infoCount;
+      
+      // Update status badge
+      const badge = document.getElementById('alertBadge');
+      if (warnCount > 0) {
+        badge.textContent = '⚠️ WARNING';
+        badge.className = 'alerts-status-badge watch';
+      } else if (okCount > 0) {
+        badge.textContent = '✅ SAFE';
+        badge.className = 'alerts-status-badge good';
+      } else {
+        badge.textContent = '⏳ WAITING';
+        badge.className = 'alerts-status-badge info';
+      }
+    }
+
+    // ================= LOGGING FUNCTIONS =================
+    function addLogEntry(data) {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+      
+      const hr = data.heartRate || lastValues.heartRate || 0;
+      const spo2 = data.spo2 || lastValues.spo2 || 0;
+      const temp = data.temperature || lastValues.temperature || 0;
+      const roomTemp = data.roomTemp || 0;
+      const humidity = data.humidity || 0;
+      
+      if (hr === 0 && spo2 === 0 && temp === 0) return;
+      
+      logCounter++;
+      logData.push({
+        no: logCounter,
+        time: timeStr,
+        bpm: hr,
+        spo2: spo2,
+        bodyTemp: temp,
+        roomTemp: roomTemp,
+        humidity: humidity
+      });
+      
+      if (logData.length > 100) {
+        logData.shift();
+      }
+      
+      renderLogTable();
+      document.getElementById('logCount').textContent = logData.length + ' records';
+    }
+
+    function renderLogTable() {
+      const tbody = document.getElementById('logTableBody');
+      
+      if (logData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="log-empty">No data logged yet. Press Start to begin recording.</td></tr>`;
+        return;
+      }
+      
+      let html = '';
+      for (let i = logData.length - 1; i >= 0; i--) {
+        const row = logData[i];
+        html += `
+          <tr>
+            <td>${row.no}</td>
+            <td>${row.time}</td>
+            <td>${row.bpm > 0 ? row.bpm : '-'}</td>
+            <td>${row.spo2 > 0 ? row.spo2 : '-'}</td>
+            <td>${row.bodyTemp > 0 ? row.bodyTemp.toFixed(1) : '-'}</td>
+            <td>${row.roomTemp > 0 ? row.roomTemp.toFixed(1) : '-'}</td>
+            <td>${row.humidity > 0 ? row.humidity.toFixed(1) : '-'}</td>
+          </tr>
+        `;
+      }
+      
+      tbody.innerHTML = html;
+    }
+
+    // ================= LOGGING CONTROLS =================
+    document.addEventListener('DOMContentLoaded', () => {
+      // Start logging
+      document.getElementById('btnLogStart').addEventListener('click', () => {
+        if (isLogging) return;
+        
+        const interval = parseInt(document.getElementById('logInterval').value);
+        isLogging = true;
+        
+        document.getElementById('logStatus').textContent = 'Running';
+        document.getElementById('logStatus').className = 'log-status-pill running';
+        document.getElementById('btnLogStart').textContent = '⏳ Running';
+        document.getElementById('btnLogStart').disabled = true;
+        document.getElementById('logInterval').disabled = true;
+        
+        logInterval = setInterval(() => {
+          if (Object.keys(lastValues).length > 0) {
+            addLogEntry(lastValues);
+          }
+        }, interval);
+      });
+      
+      // Stop logging
+      document.getElementById('btnLogStop').addEventListener('click', () => {
+        if (!isLogging) return;
+        
+        isLogging = false;
+        clearInterval(logInterval);
+        
+        document.getElementById('logStatus').textContent = 'Stopped';
+        document.getElementById('logStatus').className = 'log-status-pill stopped';
+        document.getElementById('btnLogStart').textContent = '▶ Start';
+        document.getElementById('btnLogStart').disabled = false;
+        document.getElementById('logInterval').disabled = false;
+      });
+      
+      // Clear log
+      document.getElementById('btnLogClear').addEventListener('click', () => {
+        if (logData.length === 0) return;
+        if (!confirm('Clear all logged data?')) return;
+        
+        logData = [];
+        logCounter = 0;
+        renderLogTable();
+        document.getElementById('logCount').textContent = '0 records';
+      });
+      
+      // Export CSV
+      document.getElementById('btnLogExport').addEventListener('click', () => {
+        if (logData.length === 0) {
+          alert('No data to export.');
+          return;
+        }
+        
+        let csv = 'No,Time,BPM,SpO2,BodyTemp,RoomTemp,Humidity\n';
+        for (const row of logData) {
+          csv += `${row.no},${row.time},${row.bpm},${row.spo2},${row.bodyTemp.toFixed(1)},${row.roomTemp.toFixed(1)},${row.humidity.toFixed(1)}\n`;
+        }
+        
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `vitals_log_${new Date().toISOString().slice(0,10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      });
+      
+      // Interval selector update
+      document.getElementById('logInterval').addEventListener('change', (e) => {
+        const val = parseInt(e.target.value);
+        document.getElementById('logIntervalLabel').textContent = `Every ${val/1000}s`;
+      });
+    });
+
+    // ================= NAVIGATION =================
+    document.querySelectorAll('.nav-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        const page = btn.dataset.page;
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-' + page).classList.add('active');
+        
+        document.getElementById('pageTitle').textContent = pages[page].title;
+        document.getElementById('pageSubtitle').textContent = pages[page].sub;
+        
+        // Resize canvas when switching to dashboard
+        if (page === 'dashboard') {
+          setTimeout(() => drawECG(ecgBuffer), 100);
+        }
+      });
+    });
+
+    // ================= SOUND TOGGLE =================
+    document.getElementById('btnSoundToggle').addEventListener('click', function() {
+      this.classList.toggle('muted');
+    });
+
+    // ================= PATIENT EDIT =================
+    document.getElementById('btnEditPatient').addEventListener('click', () => {
+      document.getElementById('patientModal').classList.add('open');
+    });
+    
+    document.getElementById('btnClosePatientModal').addEventListener('click', () => {
+      document.getElementById('patientModal').classList.remove('open');
+    });
+    
+    document.getElementById('patientModalBackdrop').addEventListener('click', () => {
+      document.getElementById('patientModal').classList.remove('open');
+    });
+    
+    document.getElementById('btnCancelPatient').addEventListener('click', () => {
+      document.getElementById('patientModal').classList.remove('open');
+    });
+
+    // ================= SAVE PATIENT =================
+    document.getElementById('btnSavePatient').addEventListener('click', () => {
+      const name = document.getElementById('inpName').value || 'Patient';
+      const id = document.getElementById('inpId').value || 'No ID';
+      const bed = document.getElementById('inpBed').value || '--';
+      const ward = document.getElementById('inpWard').value || '--';
+      const age = document.getElementById('inpAge').value || '--';
+      const gender = document.getElementById('inpGender').value || '--';
+      const blood = document.getElementById('inpBlood').value || '--';
+      const contact = document.getElementById('inpContact').value || '--';
+      const notes = document.getElementById('inpNotes').value || 'No notes added.';
+      
+      // Update view
+      document.getElementById('viewName').textContent = name;
+      document.getElementById('viewId').textContent = id;
+      document.getElementById('viewBed').textContent = bed;
+      document.getElementById('viewWard').textContent = ward;
+      document.getElementById('viewAge').textContent = age;
+      document.getElementById('viewGender').textContent = gender;
+      document.getElementById('viewBlood').textContent = blood;
+      document.getElementById('viewContact').textContent = contact;
+      document.getElementById('viewIdDetail').textContent = id;
+      document.getElementById('viewNotes').textContent = notes;
+      document.getElementById('viewAvatar').textContent = name.charAt(0).toUpperCase();
+      document.getElementById('dashPatientName').textContent = name;
+      
+      // Close modal
+      document.getElementById('patientModal').classList.remove('open');
+      
+      // Show save message
+      const msg = document.getElementById('saveMsg');
+      msg.textContent = '✅ Patient data saved successfully!';
+      setTimeout(() => { msg.textContent = ''; }, 3000);
+    });
+
+    // ================= CLEAR PATIENT =================
+    document.getElementById('btnClearPatient').addEventListener('click', () => {
+      if (!confirm('Clear all patient data?')) return;
+      
+      document.getElementById('inpName').value = '';
+      document.getElementById('inpId').value = '';
+      document.getElementById('inpBed').value = '';
+      document.getElementById('inpWard').value = '';
+      document.getElementById('inpAge').value = '';
+      document.getElementById('inpGender').value = '';
+      document.getElementById('inpBlood').value = '';
+      document.getElementById('inpContact').value = '';
+      document.getElementById('inpNotes').value = '';
+      
+      document.getElementById('viewName').textContent = 'No patient saved';
+      document.getElementById('viewId').textContent = 'No ID';
+      document.getElementById('viewBed').textContent = '--';
+      document.getElementById('viewWard').textContent = '--';
+      document.getElementById('viewAge').textContent = '--';
+      document.getElementById('viewGender').textContent = '--';
+      document.getElementById('viewBlood').textContent = '--';
+      document.getElementById('viewContact').textContent = '--';
+      document.getElementById('viewIdDetail').textContent = '--';
+      document.getElementById('viewNotes').textContent = 'No notes added.';
+      document.getElementById('viewAvatar').textContent = '?';
+      document.getElementById('dashPatientName').textContent = 'Patient Monitor';
+      
+      document.getElementById('patientModal').classList.remove('open');
+    });
+
+    // ================= RESIZE HANDLER =================
+    window.addEventListener('resize', () => {
+      if (document.getElementById('page-dashboard').classList.contains('active')) {
+        setTimeout(() => drawECG(ecgBuffer), 100);
+      }
+    });
+
+    // ================= INIT =================
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initialize ECG buffer
+      ecgBuffer = Array(ECG_BUFFER_SIZE).fill(0);
+      
+      // Connect to MQTT
+      connectMQTT();
+      
+      // Update clock
+      setInterval(() => {
+        const now = new Date();
+        document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+      }, 1000);
+      
+      // Initial draw
+      setTimeout(() => drawECG(ecgBuffer), 200);
+    });
+
+    // Reconnect on tab visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !isConnected) {
+        console.log('Tab active, reconnecting...');
+        connectMQTT();
+      }
+    });
+
+    // ================= COMMAND FUNCTIONS FOR BUTTONS =================
+    // Tambahkan fungsi global untuk tombol di dashboard
+    window.sendCommand = sendCommand;
+  </script>
