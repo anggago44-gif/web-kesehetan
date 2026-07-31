@@ -1,664 +1,2625 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Patient Health Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  
+  <!-- MQTT Library -->
+  <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+  
+  <style>
+    :root {
+      --bg-1: #eef4ff;
+      --bg-2: #e8f0fe;
+      --sidebar: #0f172a;
+      --sidebar-hover: #1e293b;
+      --sidebar-active: #2563eb;
+      --card: rgba(255,255,255,0.94);
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --cyan: #06b6d4;
+      --green: #16a34a;
+      --red: #ef4444;
+      --orange: #f59e0b;
+      --green-soft: #dcfce7;
+      --red-soft: #fee2e2;
+      --orange-soft: #fef3c7;
+      --blue-soft: #dbeafe;
+      --shadow: 0 20px 50px rgba(15,23,42,0.14);
+      --radius: 18px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; width: 100%; overflow: hidden; }
+    body {
+      font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(37,99,235,0.18), transparent 30%),
+        radial-gradient(circle at 92% 8%, rgba(6,182,212,0.16), transparent 28%),
+        linear-gradient(135deg, var(--bg-1), var(--bg-2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .viewport-wrap {
+      aspect-ratio: 15 / 9;
+      width: min(100vw, calc(100vh * 15 / 9));
+      height: min(100vh, calc(100vw * 9 / 15));
+    }
+    .app-shell {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      border-radius: 0;
+      overflow: hidden;
+      box-shadow: none;
+      border: none;
+      background: var(--card);
+    }
+    .sidebar {
+      width: 210px;
+      flex-shrink: 0;
+      background: linear-gradient(180deg, #0b1224 0%, #111827 55%, #0f172a 100%);
+      color: #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 12px;
+      border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 14px;
+    }
+    .sidebar-logo {
+      width: 42px; height: 42px; border-radius: 13px;
+      background: linear-gradient(135deg, #f43f5e 0%, #e11d48 50%, #be123c 100%);
+      display: grid; place-items: center;
+      box-shadow: 0 6px 18px rgba(244,63,94,0.45);
+      flex-shrink: 0;
+    }
+    .sidebar-logo svg {
+      width: 24px; height: 24px;
+      fill: none; stroke: #fff;
+      stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .sidebar-brand strong {
+      display: block; font-size: 0.88rem; letter-spacing: -0.02em;
+      background: linear-gradient(90deg, #fff, #fda4af);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sidebar-brand span {
+      font-size: 0.68rem; color: #94a3b8;
+    }
+    .nav-label {
+      font-size: 0.65rem; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #64748b;
+      padding: 0 10px; margin-bottom: 8px;
+    }
+    .nav { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .nav-item {
+      border: none; background: transparent; color: #cbd5e1;
+      text-align: left; padding: 10px 12px;
+      border-radius: 12px; font-size: 0.84rem; font-weight: 700;
+      cursor: pointer; display: flex; align-items: center; gap: 10px;
+      transition: background 0.15s, color 0.15s, transform 0.12s;
+    }
+    .nav-item:hover { background: var(--sidebar-hover); color: #fff; transform: translateX(2px); }
+    .nav-item.active {
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+      color: #fff;
+      box-shadow: 0 8px 22px rgba(37,99,235,0.4);
+    }
+    .nav-icon-wrap {
+      width: 30px; height: 30px; border-radius: 9px;
+      display: grid; place-items: center;
+      font-size: 14px; flex-shrink: 0;
+      background: rgba(255,255,255,0.08);
+    }
+    .nav-item.active .nav-icon-wrap { background: rgba(255,255,255,0.22); }
+    .nav-item[data-page="dashboard"] .nav-icon-wrap { background: rgba(244,63,94,0.2); }
+    .nav-item[data-page="patient"] .nav-icon-wrap { background: rgba(59,130,246,0.2); }
+    .nav-item[data-page="logging"] .nav-icon-wrap { background: rgba(16,185,129,0.2); }
+    .nav-item[data-page="alerts"] .nav-icon-wrap { background: rgba(245,158,11,0.2); }
+    .nav-icon { width: auto; text-align: center; opacity: 1; }
+    .sidebar-foot {
+      padding: 12px 10px 4px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      font-size: 0.72rem; color: #94a3b8;
+    }
+    .live-pill {
+      display: flex; align-items: center; gap: 7px;
+      margin-bottom: 6px; font-weight: 800; color: #e2e8f0;
+    }
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green);
+      animation: pulse 1.5s infinite;
+    }
+    .live-dot.off { background: var(--red); animation: none; }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(22,163,74,0.5); }
+      75% { box-shadow: 0 0 0 8px rgba(22,163,74,0); }
+      100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+    }
+    .main {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #fafbff, #f1f5f9);
+    }
+    .topbar {
+      flex-shrink: 0;
+      padding: 10px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid rgba(148,163,184,0.15);
+      background: linear-gradient(90deg, rgba(255,255,255,0.98), rgba(239,246,255,0.98));
+    }
+    .topbar h1 {
+      font-size: 1.12rem; letter-spacing: -0.03em; font-weight: 800;
+    }
+    .topbar p { font-size: 0.76rem; color: var(--muted); margin-top: 2px; font-weight: 600; }
+    .topbar-actions {
+      display: flex; align-items: center; gap: 12px;
+      flex-shrink: 0;
+    }
+    .topbar-meta {
+      text-align: right; font-size: 0.72rem; color: var(--muted); font-weight: 700;
+    }
+    .topbar-meta strong { display: block; color: var(--text); font-size: 0.86rem; font-weight: 800; }
+    .sound-toggle {
+      width: 36px; height: 36px;
+      border-radius: 11px;
+      border: 1.5px solid #e2e8f0;
+      background: #fff;
+      color: #64748b;
+      font-size: 16px; line-height: 1;
+      cursor: pointer;
+      display: grid; place-items: center;
+      transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+      flex-shrink: 0;
+    }
+    .sound-toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .sound-toggle:active { transform: scale(0.94); }
+    .sound-toggle.muted { opacity: 0.5; background: #f1f5f9; }
+    .sound-toggle:not(.muted) {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: #2563eb;
+    }
+    .sound-toggle svg {
+      width: 18px; height: 18px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .sound-toggle .sound-off { display: none; }
+    .sound-toggle.muted .sound-on { display: none; }
+    .sound-toggle.muted .sound-off { display: block; }
+    .topbar-actions .sound-toggle + .topbar-meta {
+      padding-left: 12px;
+      border-left: 1px solid #e2e8f0;
+    }
+    .page-area {
+      flex: 1; min-height: 0;
+      overflow: hidden; position: relative;
+    }
+    .page {
+      display: none;
+      position: absolute;
+      inset: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 14px 18px 16px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .page.active {
+      display: block;
+      z-index: 1;
+    }
+    #page-patient.page.active {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 10px 14px 12px;
+      background: linear-gradient(180deg, #f0f4fa 0%, #e8eef6 100%);
+    }
+    .record-page {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column; gap: 10px;
+      overflow: hidden;
+    }
+    .record-banner {
+      flex-shrink: 0;
+      position: relative; overflow: hidden;
+      border-radius: 18px;
+      padding: 0;
+    }
+    .record-banner-bg {
+      position: absolute; inset: 0;
+      background: linear-gradient(120deg, #1e3a8a 0%, #2563eb 45%, #0891b2 100%);
+    }
+    .record-banner-bg::after {
+      content: "";
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(circle at 85% 20%, rgba(255,255,255,0.2), transparent 42%),
+        radial-gradient(circle at 12% 88%, rgba(255,255,255,0.12), transparent 38%);
+    }
+    .record-profile {
+      position: relative; z-index: 1;
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 18px;
+      color: #fff;
+    }
+    .record-avatar-ring {
+      padding: 3px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(255,255,255,0.35));
+      flex-shrink: 0;
+    }
+    .record-profile .patient-avatar {
+      width: 68px; height: 68px;
+      border-radius: 16px;
+      font-size: 1.4rem;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    }
+    .record-profile-main { flex: 1; min-width: 0; }
+    .record-profile-main h2 {
+      margin: 0 0 8px;
+      font-size: 1.45rem; font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      word-break: break-word;
+    }
+    .record-profile .patient-chips {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .record-profile .patient-chip {
+      font-size: 0.78rem; font-weight: 800;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: #fff;
+    }
+    .record-profile .patient-chip.loc {
+      color: #e0f2fe;
+    }
+    .btn-glow {
+      flex-shrink: 0;
+      box-shadow: 0 6px 20px rgba(15,23,42,0.25);
+      background: #fff !important;
+      color: #1d4ed8 !important;
+      font-weight: 900;
+      padding: 10px 16px;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .record-scroll {
+      flex: 1; min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      display: flex; flex-direction: column; gap: 10px;
+      padding-bottom: 4px;
+    }
+    .record-section-title {
+      font-size: 0.72rem; font-weight: 900;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 8px 2px;
+    }
+    .record-stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .record-stat {
+      padding: 14px 10px;
+      border-radius: 14px;
+      text-align: center;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    .record-stat-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      display: grid; place-items: center;
+      font-size: 18px;
+    }
+    .record-stat.rc-age { background: linear-gradient(180deg, #eff6ff, #fff); border: 1px solid #bfdbfe; }
+    .record-stat.rc-age .record-stat-icon { background: #dbeafe; }
+    .record-stat.rc-gender { background: linear-gradient(180deg, #fdf2f8, #fff); border: 1px solid #fbcfe8; }
+    .record-stat.rc-gender .record-stat-icon { background: #fce7f3; }
+    .record-stat.rc-blood { background: linear-gradient(180deg, #fef2f2, #fff); border: 1px solid #fecaca; }
+    .record-stat.rc-blood .record-stat-icon { background: #fee2e2; }
+    .record-stat-label {
+      font-size: 0.65rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .record-stat-value {
+      font-size: 1.05rem; font-weight: 900;
+      color: var(--text); line-height: 1.2;
+      word-break: break-word;
+    }
+    .record-contact-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .record-detail-card {
+      padding: 14px 16px;
+      border-radius: 14px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .record-detail-card.rc-phone {
+      background: linear-gradient(135deg, #ecfdf5, #fff);
+      border: 1px solid #bbf7d0;
+    }
+    .record-detail-card.rc-id {
+      background: linear-gradient(135deg, #f5f3ff, #fff);
+      border: 1px solid #ddd6fe;
+    }
+    .record-detail-card .field-icon {
+      width: 38px; height: 38px; font-size: 16px; border-radius: 11px;
+      flex-shrink: 0;
+    }
+    .record-detail-label {
+      font-size: 0.65rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .record-detail-value {
+      font-size: 0.95rem; font-weight: 800;
+      color: var(--text); margin-top: 2px;
+      word-break: break-word;
+    }
+    .record-notes-card {
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #fffbeb, #ffffff);
+      border: 1px solid #fde68a;
+    }
+    .record-notes-card .record-section-title { margin-bottom: 10px; }
+    .record-notes-body {
+      padding: 12px 14px;
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid #fef3c7;
+      font-size: 0.92rem; font-weight: 600;
+      color: #475569; line-height: 1.55;
+      min-height: 88px;
+      word-break: break-word;
+    }
+    #page-logging.page.active,
+    #page-alerts.page.active {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 10px 14px 12px;
+      gap: 10px;
+      background: linear-gradient(180deg, #f0f4fa 0%, #e8eef6 100%);
+    }
+    .logging-page, .alerts-page {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .logging-toolbar {
+      flex-shrink: 0;
+      padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+      border-radius: 16px;
+    }
+    .logging-controls {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .logging-controls label {
+      font-size: 0.72rem; font-weight: 900;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .logging-controls select {
+      padding: 9px 12px; border-radius: 10px;
+      border: 1px solid #e2e8f0; background: #fff;
+      font-size: 0.85rem; font-weight: 700;
+      font-family: inherit; color: var(--text);
+    }
+    .btn-log { padding: 9px 14px; font-size: 0.78rem; }
+    .btn-log-start { background: #16a34a; color: #fff; }
+    .btn-log-stop { background: #ef4444; color: #fff; }
+    .btn-log-export { background: #2563eb; color: #fff; }
+    .logging-stats {
+      display: flex; align-items: center; gap: 14px;
+      font-size: 0.78rem; font-weight: 800; color: var(--muted);
+    }
+    .log-status-pill {
+      padding: 5px 12px; border-radius: 999px;
+      font-size: 0.68rem; font-weight: 900;
+      letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .log-status-pill.stopped { background: #f1f5f9; color: #64748b; }
+    .log-status-pill.running { background: #dcfce7; color: #16a34a; }
+    .logging-table-wrap {
+      flex: 1; min-height: 0;
+      overflow: hidden;
+      border-radius: 16px;
+      display: flex; flex-direction: column;
+    }
+    .logging-table-head {
+      flex-shrink: 0;
+      padding: 12px 16px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .logging-table-head h4 {
+      font-size: 0.85rem; font-weight: 900;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .logging-table-scroll {
+      flex: 1; min-height: 0; overflow: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .log-table {
+      width: 100%; border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+    .log-table th {
+      position: sticky; top: 0; z-index: 1;
+      background: #f1f5f9;
+      padding: 10px 12px;
+      text-align: left; font-weight: 900;
+      color: #475569; text-transform: uppercase;
+      letter-spacing: 0.05em; font-size: 0.68rem;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .log-table td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      font-weight: 600; color: var(--text);
+    }
+    .log-table tbody tr:nth-child(even) { background: #fafbfc; }
+    .log-table tbody tr:hover { background: #eff6ff; }
+    .log-empty {
+      padding: 40px; text-align: center;
+      color: var(--muted); font-weight: 700; font-size: 0.85rem;
+    }
+    .alerts-hero {
+      flex-shrink: 0;
+      padding: 14px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px;
+      border-radius: 16px;
+      background: linear-gradient(120deg, #7f1d1d 0%, #dc2626 40%, #ea580c 100%);
+      color: #fff;
+      box-shadow: 0 8px 28px rgba(220,38,38,0.25);
+    }
+    .alerts-hero h3 {
+      font-size: 1.05rem; font-weight: 900;
+      letter-spacing: -0.02em; margin: 0 0 3px;
+      color: #fff;
+    }
+    .alerts-hero p {
+      font-size: 0.72rem; color: rgba(255,255,255,0.85); margin: 0;
+      font-weight: 600;
+    }
+    .alerts-status-badge {
+      font-size: 0.68rem; font-weight: 900;
+      padding: 8px 14px; border-radius: 999px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.95);
+    }
+    .alerts-status-badge.good { color: #16a34a; }
+    .alerts-status-badge.watch { color: #b45309; }
+    .alerts-status-badge.bad { color: #ef4444; }
+    .alerts-summary {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .alerts-summary-card {
+      padding: 10px 12px;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 0.65rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .alerts-summary-card span {
+      display: block;
+      font-size: 1.35rem; font-weight: 1000;
+      letter-spacing: -0.04em;
+      margin-bottom: 2px;
+    }
+    .alerts-summary-card.warn { background: #fff7ed; border: 1px solid #fdba74; color: #c2410c; }
+    .alerts-summary-card.warn span { color: #ea580c; }
+    .alerts-summary-card.ok { background: #f0fdf4; border: 1px solid #86efac; color: #15803d; }
+    .alerts-summary-card.ok span { color: #16a34a; }
+    .alerts-summary-card.info { background: #eff6ff; border: 1px solid #93c5fd; color: #1d4ed8; }
+    .alerts-summary-card.info span { color: #2563eb; }
+    .alerts-scroll {
+      flex: 1; min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      display: flex; flex-direction: column; gap: 12px;
+      padding-bottom: 4px;
+    }
+    .alerts-section-title {
+      font-size: 0.7rem; font-weight: 900;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 8px 2px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .alert-row {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 12px 14px;
+      border-radius: 14px;
+      margin-bottom: 8px;
+      border: 1px solid #e8eef5;
+      background: #fff;
+      transition: box-shadow 0.15s;
+    }
+    .alert-row:last-child { margin-bottom: 0; }
+    .alert-row.alert-ok { border-left: 4px solid #22c55e; background: linear-gradient(90deg, #f0fdf4, #fff); }
+    .alert-row.alert-warn { border-left: 4px solid #f59e0b; background: linear-gradient(90deg, #fffbeb, #fff); }
+    .alert-row.alert-bad { border-left: 4px solid #ef4444; background: linear-gradient(90deg, #fef2f2, #fff); }
+    .alert-row.alert-info { border-left: 4px solid #3b82f6; background: linear-gradient(90deg, #eff6ff, #fff); }
+    .alert-row-icon {
+      width: 42px; height: 42px; flex-shrink: 0;
+      border-radius: 12px;
+      display: grid; place-items: center;
+      font-size: 20px;
+    }
+    .alert-row.alert-ok .alert-row-icon { background: #dcfce7; }
+    .alert-row.alert-warn .alert-row-icon { background: #fef3c7; }
+    .alert-row.alert-bad .alert-row-icon { background: #fee2e2; }
+    .alert-row.alert-info .alert-row-icon { background: #dbeafe; }
+    .alert-row-body { flex: 1; min-width: 0; }
+    .alert-row-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 8px; margin-bottom: 4px;
+    }
+    .alert-row-top strong {
+      font-size: 0.88rem; color: var(--text); line-height: 1.3;
+    }
+    .alert-pill {
+      flex-shrink: 0;
+      font-size: 0.58rem; font-weight: 900;
+      padding: 3px 8px; border-radius: 999px;
+      letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .alert-pill.ok { background: #dcfce7; color: #16a34a; }
+    .alert-pill.warn { background: #fef3c7; color: #b45309; }
+    .alert-pill.bad { background: #fee2e2; color: #ef4444; }
+    .alert-pill.info { background: #dbeafe; color: #2563eb; }
+    .alert-row-body > p {
+      font-size: 0.78rem; color: #475569;
+      line-height: 1.4; margin: 0 0 6px; font-weight: 600;
+    }
+    .alert-tip {
+      font-size: 0.72rem; color: #64748b;
+      line-height: 1.4; margin: 0;
+      padding: 7px 10px;
+      background: rgba(255,255,255,0.7);
+      border-radius: 8px;
+      border: 1px dashed #cbd5e1;
+      font-weight: 600;
+    }
+    .alert-tip::before { content: "💡 "; }
+    .alerts-suggestions {
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+      border: 1px solid #bfdbfe;
+    }
+    .alerts-suggestions .alerts-section-title { color: #1d4ed8; }
+    .alert-suggest-list {
+      list-style: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .alert-suggest-list li {
+      font-size: 0.78rem; font-weight: 600;
+      color: #334155; line-height: 1.45;
+      padding: 9px 12px 9px 32px;
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      position: relative;
+    }
+    .alert-suggest-list li::before {
+      content: "✓";
+      position: absolute; left: 10px; top: 9px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dbeafe; color: #2563eb;
+      font-size: 0.62rem; font-weight: 900;
+      display: grid; place-items: center;
+    }
+    .patient-page {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+    }
+    .patient-panel {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      padding: 0;
+    }
+    .patient-hero {
+      flex-shrink: 0;
+      padding: 16px 20px;
+      background: linear-gradient(120deg, #eff6ff 0%, #ecfeff 45%, #ffffff 100%);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+      display: flex; align-items: center; gap: 18px;
+    }
+    .patient-avatar {
+      width: 76px; height: 76px; flex-shrink: 0;
+      border-radius: 18px;
+      background: linear-gradient(145deg, var(--blue), var(--cyan));
+      color: #fff; font-size: 1.55rem; font-weight: 900;
+      display: grid; place-items: center;
+      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+      letter-spacing: 0.02em;
+    }
+    .patient-hero-main { flex: 1; min-width: 0; }
+    .patient-hero-main h2 {
+      margin: 0 0 10px; font-size: 1.65rem; font-weight: 900;
+      letter-spacing: -0.03em; line-height: 1.15;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .patient-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .patient-chip {
+      font-size: 0.88rem; font-weight: 800; padding: 7px 14px;
+      border-radius: 999px; background: rgba(255,255,255,0.92);
+      border: 1px solid #dbeafe; color: #1d4ed8;
+    }
+    .patient-chip.loc { border-color: #99f6e4; color: #0f766e; }
+    .patient-hero .btn {
+      flex-shrink: 0; padding: 12px 20px; font-size: 0.92rem;
+    }
+    .patient-body {
+      flex: 1; min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.15fr;
+      gap: 12px;
+      padding: 12px 14px 14px;
+      overflow: hidden;
+      align-items: stretch;
+    }
+    .patient-section {
+      background: #f8fafc;
+      border: 1px solid #e8eef5;
+      border-radius: 14px;
+      padding: 16px 18px;
+      display: flex; flex-direction: column;
+      min-height: 0;
+      justify-content: center;
+    }
+    .patient-section-title {
+      font-size: 0.8rem; font-weight: 900; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.09em;
+      margin: 0 0 12px; padding-bottom: 10px;
+      border-bottom: 1px solid #e2e8f0;
+      flex-shrink: 0;
+    }
+    .patient-section-rows {
+      flex: 1; display: flex; flex-direction: column;
+      justify-content: space-evenly; min-height: 0;
+    }
+    .detail-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 11px 0;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row .detail-label {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 0.95rem; color: #64748b; font-weight: 700;
+    }
+    #page-patient .detail-row .field-icon {
+      width: 32px; height: 32px; font-size: 16px; border-radius: 9px;
+    }
+    .detail-row .detail-value {
+      font-size: 1.08rem; font-weight: 800; color: var(--text);
+      text-align: right; word-break: break-word;
+    }
+    .notes-box {
+      flex: 1; min-height: 0;
+      margin-top: 6px; padding: 14px 16px;
+      background: #fff; border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      font-size: 1rem; font-weight: 600; color: #475569;
+      line-height: 1.5; overflow-y: auto;
+      display: flex; align-items: flex-start;
+    }
+    .patient-modal {
+      display: none;
+      position: fixed; inset: 0; z-index: 200;
+      align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .patient-modal.open { display: flex; }
+    .patient-modal-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+    }
+    .patient-modal-card {
+      position: relative; z-index: 1;
+      width: min(580px, 100%);
+      max-height: min(92vh, 640px);
+      overflow-y: auto;
+      padding: 18px 20px 20px;
+    }
+    .patient-modal-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .patient-modal-head h3 {
+      font-size: 0.98rem; margin: 0;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .btn-icon {
+      width: 32px; height: 32px; border-radius: 10px;
+      border: 1px solid #e2e8f0; background: #fff;
+      color: var(--muted); font-size: 1.1rem; cursor: pointer;
+      display: grid; place-items: center; line-height: 1;
+    }
+    #page-dashboard.page.active {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 10px 14px 12px;
+      gap: 10px;
+      z-index: 2;
+      background:
+        radial-gradient(ellipse 70% 45% at 15% 0%, rgba(244,63,94,0.08), transparent),
+        radial-gradient(ellipse 60% 40% at 85% 5%, rgba(37,99,235,0.1), transparent),
+        radial-gradient(ellipse 50% 35% at 50% 100%, rgba(6,182,212,0.08), transparent),
+        linear-gradient(180deg, #f8faff 0%, #eef2ff 100%);
+    }
+    .med-dash {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .med-status-bar {
+      flex-shrink: 0;
+      display: flex; align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #1e293b;
+      overflow: hidden;
+    }
+    .med-status-pill {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      font-size: 0.68rem; font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .med-status-pill.live-pill-dash {
+      background: rgba(34,197,94,0.15);
+      border: 1px solid rgba(34,197,94,0.35);
+      color: #86efac;
+    }
+    .med-status-pill.ward-pill-dash {
+      background: rgba(59,130,246,0.12);
+      border: 1px solid rgba(59,130,246,0.3);
+      color: #93c5fd;
+    }
+    .med-status-pill.ward-pill-dash svg {
+      width: 14px; height: 14px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .med-status-patient {
+      flex: 1; min-width: 0;
+      display: flex; align-items: center; gap: 8px;
+      margin-left: auto;
+      padding: 6px 12px 6px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .med-status-patient .med-chip-icon {
+      background: #3b82f6;
+      color: #fff;
+      font-size: 12px;
+    }
+    #dashPatientName {
+      font-size: 0.78rem; font-weight: 800;
+      text-transform: none; letter-spacing: -0.01em;
+      color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      min-width: 0;
+      flex: 1;
+    }
+    .med-status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      animation: statusPulse 2s infinite;
+      flex-shrink: 0;
+    }
+    @keyframes statusPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .med-chip-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: rgba(255,255,255,0.14);
+      display: grid; place-items: center; font-size: 13px;
+      flex-shrink: 0;
+    }
+    .med-chip-icon svg {
+      width: 15px; height: 15px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .med-vitals-grid {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: 1.15fr 1.15fr 0.85fr;
+      gap: 10px;
+      min-height: 0;
+    }
+    .med-vital {
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 18px;
+      border-radius: 16px;
+      position: relative;
+      min-height: 112px;
+      box-shadow: none !important;
+      transition: border-color 0.25s ease;
+    }
+    .med-vital-heart {
+      background: #fff1f2;
+      border: 1.5px solid #fecdd3;
+    }
+    .med-vital-spo2 {
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+    }
+    .med-vital-icon-wrap {
+      flex-shrink: 0;
+      width: 56px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .vital-icon-box {
+      width: 52px; height: 52px;
+      border-radius: 14px;
+      display: grid; place-items: center;
+      transform-origin: center;
+      box-shadow: none;
+    }
+    .vital-icon-heart {
+      background: #e11d48;
+      color: #fff;
+    }
+    .vital-icon-heart.beating {
+      animation: heartbeat var(--beat-dur, 0.85s) ease-in-out infinite;
+      will-change: transform;
+    }
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); }
+      14% { transform: scale(1.07); }
+      28% { transform: scale(1); }
+      42% { transform: scale(1.04); }
+      56% { transform: scale(1); }
+    }
+    .vital-icon-heart svg {
+      width: 26px; height: 26px;
+      fill: currentColor;
+    }
+    .vital-icon-spo2 {
+      background: #2563eb;
+      color: #fff;
+      animation: o2Breathe 3s ease-in-out infinite;
+    }
+    @keyframes o2Breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+    }
+    .vital-icon-spo2 .spo2-symbol {
+      font-size: 1rem; font-weight: 800;
+      letter-spacing: -0.03em;
+      text-shadow: none;
+    }
+    .med-vital-body { flex: 1; min-width: 0; }
+    .med-vital-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px; gap: 6px;
+    }
+    .med-vital-title {
+      font-size: 0.7rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: #64748b;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .vt-ico {
+      width: 18px; height: 18px; border-radius: 5px;
+      display: grid; place-items: center;
+      flex-shrink: 0;
+    }
+    .vt-ico svg {
+      width: 11px; height: 11px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .med-vital-heart .vt-ico { background: #ffe4e6; color: #e11d48; }
+    .med-vital-spo2 .vt-ico { background: #dbeafe; color: #2563eb; }
+    .dash-section-label {
+      font-size: 0.68rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: #94a3b8;
+      padding: 0 2px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .dash-section-label::before {
+      content: "";
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      animation: statusPulse 2s infinite;
+    }
+    .med-vital-value {
+      font-size: 2rem; font-weight: 800;
+      letter-spacing: -0.04em; line-height: 1;
+      margin-bottom: 4px;
+      font-variant-numeric: tabular-nums;
+      transition: color 0.3s ease;
+    }
+    #bpm.bpm-pulse {
+      animation: bpmGlow 0.55s ease;
+    }
+    @keyframes bpmGlow {
+      0%, 100% { opacity: 1; filter: none; }
+      40% { opacity: 0.82; filter: brightness(1.15); }
+    }
+    .med-vital-value.vital-flash { animation: vitalSoft 0.45s ease; }
+    .med-vital-heart .med-vital-value { color: #9f1239; }
+    .med-vital-spo2 .med-vital-value { color: #1e40af; }
+    .med-unit {
+      font-size: 0.75rem; font-weight: 700;
+      color: #94a3b8; margin-left: 3px;
+      letter-spacing: 0.02em;
+    }
+    .med-range {
+      font-size: 0.65rem; font-weight: 600;
+      color: #94a3b8; margin-bottom: 8px;
+    }
+    .med-bar {
+      height: 5px; border-radius: 999px;
+      background: rgba(15,23,42,0.06); overflow: hidden;
+    }
+    .med-vital .bar-fill {
+      height: 100%; border-radius: inherit;
+      transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+    .med-vital-heart .bar-fill { background: #f43f5e; }
+    .med-vital-spo2 .bar-fill { background: #3b82f6; }
+    .med-vitals-side {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .med-vital-compact {
+      flex: 1;
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      min-height: 0;
+      box-shadow: none !important;
+      transition: border-color 0.25s ease;
+    }
+    .med-vital-compact.temp {
+      background: #fff7ed;
+      border: 1.5px solid #fed7aa;
+    }
+    .med-vital-compact.sys {
+      background: #fef2f2;
+      border: 1.5px solid #fecaca;
+    }
+    .med-vital-compact.dia {
+      background: #f5f3ff;
+      border: 1.5px solid #ddd6fe;
+    }
+    .med-compact-icon {
+      width: 38px; height: 38px; flex-shrink: 0;
+      border-radius: 11px;
+      display: grid; place-items: center;
+      box-shadow: none;
+    }
+    .med-vital-compact.temp .med-compact-icon { background: #ea580c; color: #fff; }
+    .med-vital-compact.sys .med-compact-icon { background: #dc2626; color: #fff; }
+    .med-vital-compact.dia .med-compact-icon { background: #7c3aed; color: #fff; }
+    .med-compact-icon svg {
+      width: 20px; height: 20px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .med-compact-body { flex: 1; min-width: 0; }
+    .med-compact-body .med-vital-title { margin-bottom: 3px; font-size: 0.65rem; }
+    .med-compact-value {
+      font-size: 1.3rem; font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .med-compact-value.vital-flash { animation: vitalSoft 0.45s ease; }
+    @keyframes vitalSoft {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.75; }
+    }
+    .med-vital-compact.temp .med-compact-value { color: #c2410c; }
+    .med-vital-compact.sys .med-compact-value { color: #b91c1c; }
+    .med-vital-compact.dia .med-compact-value { color: #5b21b6; }
+    .med-compact-body .med-unit { font-size: 0.65rem; }
+    .med-compact-body .med-bar { height: 4px; margin-top: 6px; }
+    .med-vital-compact.temp .bar-fill { background: #f97316; }
+    .med-vital-compact.sys .bar-fill { background: #ef4444; }
+    .med-vital-compact.dia .bar-fill { background: #8b5cf6; }
+    .med-vital .badge, .med-vital-compact .badge {
+      position: static;
+      font-size: 0.55rem;
+      font-weight: 800;
+      padding: 3px 8px;
+      letter-spacing: 0.04em;
+      border-radius: 6px;
+    }
+    .med-ecg {
+      flex: 1 1 auto; min-height: 0;
+      padding: 12px 14px 14px;
+      background: #0a0a0a;
+      border: 1.5px solid #1a1a1a;
+      box-shadow: none !important;
+    }
+    .ecg-icon-wrap {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: #3b82f6;
+      display: grid; place-items: center;
+      color: #fff;
+      box-shadow: none;
+    }
+    .ecg-icon-wrap svg {
+      width: 18px; height: 18px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .ecg-title-block {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .ecg-title-block h3 {
+      font-size: 0.92rem; letter-spacing: -0.02em;
+      margin: 0;
+      color: #e2e8f0;
+    }
+    .ecg-sub {
+      font-size: 0.68rem; color: #94a3b8; font-weight: 600;
+    }
+    .ecg-overlay-labels {
+      position: absolute; top: 8px; left: 10px; z-index: 2;
+      display: flex; gap: 12px;
+      font-size: 0.62rem; font-weight: 800;
+      color: rgba(59,130,246,0.5);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    .glass {
+      background: var(--card);
+      border: 1px solid rgba(226,232,240,0.9);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+    }
+    .vitals-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .vital-card { padding: 12px 14px; position: relative; overflow: hidden; }
+    .vital-card .label {
+      font-size: 0.68rem; font-weight: 900; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+    .vital-card .value {
+      font-size: 1.85rem; font-weight: 1000;
+      letter-spacing: -0.06em; line-height: 1;
+      margin-bottom: 8px;
+    }
+    .vital-card .unit { font-size: 0.8rem; color: var(--muted); font-weight: 800; }
+    .vital-card .bar {
+      height: 6px; border-radius: 999px; background: #e8eef7; overflow: hidden;
+    }
+    .vital-card .bar-fill {
+      height: 100%; border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--cyan));
+      transition: width 0.4s ease;
+    }
+    .badge {
+      position: absolute; top: 10px; right: 10px;
+      font-size: 0.62rem; font-weight: 900; padding: 4px 8px;
+      border-radius: 999px; letter-spacing: 0.05em;
+    }
+    .badge.good { background: var(--green-soft); color: var(--green); }
+    .badge.watch { background: var(--orange-soft); color: #b45309; }
+    .badge.live { background: var(--blue-soft); color: var(--blue); }
+    .badge.bad { background: var(--red-soft); color: var(--red); }
+    #page-dashboard .ecg-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .ecg-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #page-dashboard .ecg-head {
+      margin-bottom: 8px;
+      flex-shrink: 0;
+    }
+    #page-dashboard .ecg-stage {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .ecg-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px; gap: 10px;
+      position: relative;
+    }
+    .ecg-head .ecg-badge-pill {
+      position: static;
+      flex-shrink: 0;
+      font-size: 0.62rem; font-weight: 900;
+      padding: 5px 12px; border-radius: 999px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      background: #1a3a5c;
+      color: #60a5fa;
+    }
+    .ecg-head .ecg-badge-pill.good { background: var(--green-soft); color: var(--green); }
+    .ecg-head .ecg-badge-pill.watch { background: var(--orange-soft); color: #b45309; }
+    .ecg-head .ecg-badge-pill.bad { background: var(--red-soft); color: var(--red); }
+    .ecg-head .ecg-badge-pill.live { background: #1a3a5c; color: #60a5fa; }
+    .ecg-head h3 { font-size: 0.92rem; letter-spacing: -0.02em; }
+    .ecg-head span { font-size: 0.72rem; color: var(--muted); }
+    .ecg-stage {
+      flex: 1;
+      min-height: 0;
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+      background: #000000;
+      border: 1px solid #1a1a1a;
+    }
+    .ecg-stage canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .info-card { padding: 16px; }
+    .info-card h3 {
+      font-size: 0.95rem; margin-bottom: 12px;
+      padding-bottom: 8px; border-bottom: 1px solid #e2e8f0;
+    }
+    .info-row {
+      display: flex; justify-content: space-between; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid #f1f5f9;
+      font-size: 0.82rem;
+    }
+    .info-row span:first-child { color: var(--muted); font-weight: 700; }
+    .info-row span:last-child { font-weight: 800; text-align: right; }
+    .alert-card {
+      padding: 14px; margin-bottom: 10px;
+      display: grid; grid-template-columns: 36px 1fr; gap: 12px;
+      align-items: start;
+    }
+    .alert-icon {
+      width: 36px; height: 36px; border-radius: 12px;
+      background: #fff; display: grid; place-items: center;
+      border: 1px solid #e2e8f0; font-size: 16px;
+    }
+    .alert-card strong { display: block; font-size: 0.88rem; margin-bottom: 4px; }
+    .alert-card p { font-size: 0.78rem; color: var(--muted); line-height: 1.4; }
+    .form-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
+    }
+    .form-field {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .form-field.full { grid-column: span 2; }
+    .form-field label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.68rem; color: var(--muted); font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .field-icon {
+      width: 22px; height: 22px; border-radius: 7px;
+      display: grid; place-items: center;
+      font-size: 12px; line-height: 1; flex-shrink: 0;
+    }
+    .field-icon.ic-name { background: #dbeafe; color: #2563eb; }
+    .field-icon.ic-id { background: #ede9fe; color: #7c3aed; }
+    .field-icon.ic-bed { background: #ccfbf1; color: #0d9488; }
+    .field-icon.ic-ward { background: #ffedd5; color: #ea580c; }
+    .field-icon.ic-age { background: #cffafe; color: #0891b2; }
+    .field-icon.ic-blood { background: #fee2e2; color: #dc2626; }
+    .field-icon.ic-gender { background: #fce7f3; color: #db2777; }
+    .field-icon.ic-contact { background: #dcfce7; color: #16a34a; }
+    .field-icon.ic-notes { background: #fef3c7; color: #d97706; }
+    .info-label {
+      display: flex; align-items: center; gap: 8px;
+      color: var(--muted); font-weight: 700;
+    }
+    .info-label .field-icon { width: 20px; height: 20px; font-size: 11px; border-radius: 6px; }
+    #page-patient .info-card h3 {
+      display: flex; align-items: center; gap: 8px;
+    }
+    #page-patient .info-card h3 .field-icon { width: 24px; height: 24px; font-size: 13px; }
+    .form-field input, .form-field select, .form-field textarea {
+      padding: 9px 11px; border-radius: 10px;
+      border: 1px solid #e2e8f0; background: #fff;
+      font-size: 0.88rem; font-weight: 600; color: var(--text);
+      font-family: inherit;
+    }
+    .form-field textarea { min-height: 72px; resize: vertical; }
+    .form-field input:focus, .form-field select:focus, .form-field textarea:focus {
+      outline: none; border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+    .form-actions {
+      display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;
+    }
+    .btn {
+      padding: 10px 16px; border-radius: 10px; border: none;
+      font-size: 0.82rem; font-weight: 800; cursor: pointer;
+    }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-secondary { background: #e2e8f0; color: var(--text); }
+    .btn-danger { background: var(--red-soft); color: var(--red); }
+    .save-msg {
+      font-size: 0.78rem; color: var(--green); font-weight: 800;
+      margin-top: 8px; min-height: 1em;
+    }
+    .patient-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .nav-text-short { display: none; }
+    .patient-head h3 { font-size: 0.95rem; border: none; padding: 0; margin: 0; }
+ 
+    @media (max-width: 1024px) {
+      .med-vitals-grid { grid-template-columns: 1fr 1fr; }
+      .med-vitals-side { grid-column: span 2; flex-direction: row; }
+      .med-vital-compact { flex: 1; min-width: 0; }
+    }
+ 
+    @media (max-width: 768px) {
+      body { align-items: stretch; justify-content: stretch; }
+      .viewport-wrap {
+        width: 100vw;
+        width: 100dvw;
+        height: 100vh;
+        height: 100dvh;
+        max-width: none;
+        max-height: none;
+        aspect-ratio: auto;
+      }
+      .app-shell { flex-direction: column; }
+      .main { flex: 1; min-height: 0; order: 1; }
+      .sidebar {
+        order: 2;
+        width: 100%;
+        flex-shrink: 0;
+        flex-direction: column;
+        padding: 0;
+        border-right: none;
+        border-top: 1px solid rgba(255,255,255,0.1);
+      }
+      .sidebar-brand, .nav-label { display: none; }
+      .sidebar-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 14px;
+        border-top: none;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        margin: 0;
+      }
+      .nav {
+        flex-direction: row;
+        flex: none;
+        gap: 2px;
+        padding: 4px 6px;
+        padding-bottom: max(6px, env(safe-area-inset-bottom));
+      }
+      .nav-item {
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 8px 2px;
+        min-height: 54px;
+        font-size: 0.58rem;
+        text-align: center;
+        transform: none;
+        border-radius: 10px;
+      }
+      .nav-item:hover { transform: none; }
+      .nav-text-long { display: none; }
+      .nav-text-short { display: inline; }
+      .nav-icon-wrap { width: 32px; height: 32px; font-size: 15px; }
+      .topbar { padding: 8px 12px; gap: 8px; }
+      .topbar h1 { font-size: 1rem; }
+      .topbar p { font-size: 0.7rem; display: none; }
+      .topbar-meta { font-size: 0.68rem; }
+      .topbar-meta strong { font-size: 0.78rem; }
+      .page { padding: 10px 10px 12px; }
+      .page.active { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+      #page-dashboard.page.active,
+      #page-patient.page.active,
+      #page-logging.page.active,
+      #page-alerts.page.active {
+        overflow-y: auto;
+        padding: 8px 10px 10px;
+      }
+      .med-dash { gap: 8px; min-height: min-content; }
+      .med-status-bar { flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+      .med-status-patient {
+        flex: 1 1 100%;
+        max-width: 100%;
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .ward-pill-dash { display: none; }
+      .topbar-actions { gap: 8px; }
+      .sound-toggle { width: 32px; height: 32px; font-size: 14px; }
+      .med-vitals-grid { grid-template-columns: 1fr; gap: 8px; }
+      .med-vitals-side { grid-column: auto; flex-direction: column; gap: 8px; }
+      .med-vital { min-height: auto; padding: 12px 14px; }
+      .med-vital-value { font-size: 2rem; }
+      .med-vital-compact { min-height: auto; }
+      #page-dashboard .ecg-wrap { flex: none; min-height: 0; }
+      #page-dashboard .ecg-stage {
+        flex: none;
+        min-height: 200px;
+        height: 42vw;
+        max-height: 280px;
+      }
+      .record-stats-row { grid-template-columns: 1fr; }
+      .record-stat {
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        text-align: left;
+        padding: 12px 14px;
+        gap: 12px;
+      }
+      .record-stat-label { flex: 1; margin: 0; }
+      .record-stat-value { font-size: 1rem; flex-shrink: 0; }
+      .record-contact-row { grid-template-columns: 1fr; }
+      .record-profile { flex-wrap: wrap; padding: 14px; gap: 12px; }
+      .record-profile-main { width: calc(100% - 82px); }
+      .record-profile-main h2 { font-size: 1.25rem; }
+      .record-profile .btn-glow { width: 100%; margin-top: 2px; }
+      .record-page { overflow: hidden; }
+      #page-patient.page.active { overflow: hidden; }
+      #page-alerts.page.active { overflow: hidden; }
+      .alerts-summary { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .alerts-summary-card { padding: 8px 6px; font-size: 0.58rem; }
+      .alerts-summary-card span { font-size: 1.15rem; }
+      .alerts-hero { flex-wrap: wrap; padding: 12px 14px; }
+      .alerts-hero h3 { font-size: 0.95rem; }
+      .alert-row { padding: 11px 12px; gap: 10px; }
+      .alert-row-icon { width: 38px; height: 38px; font-size: 17px; }
+      .alert-row-top strong { font-size: 0.82rem; }
+      .alert-tip { font-size: 0.68rem; padding: 6px 8px; }
+      .logging-toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+      .logging-controls { flex-direction: column; align-items: stretch; }
+      .logging-controls select, .logging-controls .btn-log { width: 100%; }
+      .logging-stats { justify-content: space-between; width: 100%; }
+      .logging-table-scroll { overflow-x: auto; overflow-y: auto; }
+      .log-table { min-width: 520px; font-size: 0.72rem; }
+      .log-table th, .log-table td { padding: 8px 8px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .form-field.full { grid-column: span 1; }
+      .patient-modal { padding: 10px; align-items: flex-end; }
+      .patient-modal-card {
+        max-height: 92dvh;
+        border-radius: 18px 18px 0 0;
+        width: 100%;
+      }
+      .info-grid { grid-template-columns: 1fr; }
+      .vitals-row { grid-template-columns: 1fr; }
+    }
+ 
+    @media (max-width: 400px) {
+      .med-vital-icon-wrap { width: 52px; }
+      .vital-icon-box { width: 46px; height: 46px; }
+      .vital-icon-heart svg { width: 22px; height: 22px; }
+      .med-vital-value { font-size: 1.75rem; }
+      .med-compact-value { font-size: 1.15rem; }
+      .nav-item { font-size: 0.52rem; min-height: 50px; }
+      .ecg-overlay-labels { font-size: 0.55rem; gap: 8px; }
+      #page-dashboard .ecg-stage { min-height: 160px; height: 38vw; }
+    }
+  </style>
+</head>
+<body>
+  <div class="viewport-wrap">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="sidebar-logo">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12h2l2-4 3 8 2-5 2 5 3-8 2 4h2"/>
+            </svg>
+          </div>
+          <div>
+            <strong>MedMonitor</strong>
+            <span>IoT Perawatan Pasien</span>
+          </div>
+        </div>
+        <div class="nav-label">Klinis</div>
+        <nav class="nav">
+          <button class="nav-item active" data-page="dashboard"><span class="nav-icon-wrap"><span class="nav-icon">&#128147;</span></span><span class="nav-text"><span class="nav-text-long">Monitor Vital</span><span class="nav-text-short">Vital</span></span></button>
+          <button class="nav-item" data-page="patient"><span class="nav-icon-wrap"><span class="nav-icon">&#128100;</span></span><span class="nav-text"><span class="nav-text-long">Data Pasien</span><span class="nav-text-short">Pasien</span></span></button>
+          <button class="nav-item" data-page="logging"><span class="nav-icon-wrap"><span class="nav-icon">&#128202;</span></span><span class="nav-text"><span class="nav-text-long">Log Data</span><span class="nav-text-short">Log</span></span></button>
+          <button class="nav-item" data-page="alerts"><span class="nav-icon-wrap"><span class="nav-icon">&#128680;</span></span><span class="nav-text"><span class="nav-text-long">Peringatan</span><span class="nav-text-short">Alert</span></span></button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="live-pill"><span class="live-dot" id="liveDot"></span><span id="connText">Menghubungkan</span></div>
+          <span id="clock">--:--:--</span>
+        </div>
+      </aside>
+ 
+      <div class="main">
+        <header class="topbar">
+          <div>
+            <h1 id="pageTitle">Dashboard</h1>
+            <p id="pageSubtitle">Pemantauan vital dan tekanan darah real-time</p>
+          </div>
+          <div class="topbar-actions">
+            <button type="button" class="sound-toggle" id="btnSoundToggle" title="Toggle heartbeat sound" aria-label="Toggle heartbeat sound">
+              <svg class="sound-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+              <svg class="sound-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+            </button>
+            <div class="topbar-meta">
+              <span>Update terakhir</span>
+              <strong id="lastUpdate">--</strong>
+            </div>
+          </div>
+        </header>
+ 
+        <div class="page-area">
+          <!-- DASHBOARD -->
+          <section class="page active" id="page-dashboard">
+            <div class="med-dash">
+              <div class="med-status-bar">
+                <div class="med-status-pill live-pill-dash">
+                  <span class="med-status-dot"></span>
+                  <span>Live</span>
+                </div>
+                <div class="med-status-pill ward-pill-dash">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg>
+                  <span>Monitor ICU</span>
+                </div>
+                <div class="med-status-patient">
+                  <span class="med-chip-icon">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  </span>
+                  <span id="dashPatientName">Monitor Pasien</span>
+                </div>
+              </div>
+ 
+              <div class="dash-section-label">Vital Sign Live</div>
+ 
+              <div class="med-vitals-grid">
+                <!-- Heart Rate -->
+                <div class="med-vital med-vital-heart glass">
+                  <div class="med-vital-icon-wrap">
+                    <div class="vital-icon-box vital-icon-heart" id="heartIcon">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <div class="med-vital-body">
+                    <div class="med-vital-top">
+                      <span class="med-vital-title"><span class="vt-ico"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor" stroke="none"/></svg></span>Detak Jantung</span>
+                      <span class="badge watch" id="bpmBadge">TUNGGU</span>
+                    </div>
+                    <div class="med-vital-value" id="bpmWrap"><span id="bpm">--</span><span class="med-unit">BPM</span></div>
+                    <div class="med-range">Normal: 60 – 100 BPM</div>
+                    <div class="bar med-bar"><div class="bar-fill" id="bpmBar" style="width:6%"></div></div>
+                  </div>
+                </div>
+ 
+                <!-- SpO2 -->
+                <div class="med-vital med-vital-spo2 glass">
+                  <div class="med-vital-icon-wrap">
+                    <div class="vital-icon-box vital-icon-spo2">
+                      <span class="spo2-symbol">O&#8322;</span>
+                    </div>
+                  </div>
+                  <div class="med-vital-body">
+                    <div class="med-vital-top">
+                      <span class="med-vital-title"><span class="vt-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M10 9v6M14 9v6"/></svg></span>Oksigen Darah</span>
+                      <span class="badge watch" id="spo2Badge">TUNGGU</span>
+                    </div>
+                    <div class="med-vital-value" id="spo2Wrap"><span id="spo2">--</span><span class="med-unit">% SpO&#8322;</span></div>
+                    <div class="med-range">Normal: ≥ 95%</div>
+                    <div class="bar med-bar"><div class="bar-fill" id="spo2Bar" style="width:6%"></div></div>
+                  </div>
+                </div>
+ 
+                <div class="med-vitals-side">
+                  <!-- Body Temp -->
+                  <div class="med-vital-compact glass temp">
+                    <div class="med-compact-icon">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+                    </div>
+                    <div class="med-compact-body">
+                      <div class="med-vital-top">
+                        <span class="med-vital-title"><span class="vt-ico" style="background:#ffedd5;color:#ea580c"><svg viewBox="0 0 24 24"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" fill="currentColor" stroke="none"/></svg></span>Suhu Tubuh</span>
+                        <span class="badge watch" id="tempBadge">TUNGGU</span>
+                      </div>
+                      <div class="med-compact-value" id="bodyTempWrap"><span id="bodyTemp">--</span><span class="med-unit">&deg;C</span></div>
+                      <div class="med-range">Normal: 36.1 – 37.2 °C</div>
+                      <div class="bar med-bar"><div class="bar-fill" id="bodyTempBar" style="width:6%"></div></div>
+                    </div>
+                  </div>
+                  
+                  <!-- SYS -->
+                  <div class="med-vital-compact glass sys">
+                    <div class="med-compact-icon">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    </div>
+                    <div class="med-compact-body">
+                      <div class="med-vital-top">
+                        <span class="med-vital-title"><span class="vt-ico" style="background:#fee2e2;color:#dc2626"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor" stroke="none"/></svg></span>Sistolik</span>
+                        <span class="badge watch" id="sysBadge">TUNGGU</span>
+                      </div>
+                      <div class="med-compact-value" id="sysWrap"><span id="sysValue">--</span><span class="med-unit">mmHg</span></div>
+                      <div class="med-range">Normal: 90 – 120 mmHg</div>
+                      <div class="bar med-bar"><div class="bar-fill" id="sysBar" style="width:6%"></div></div>
+                    </div>
+                  </div>
+                  
+                  <!-- DIA -->
+                  <div class="med-vital-compact glass dia">
+                    <div class="med-compact-icon">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <div class="med-compact-body">
+                      <div class="med-vital-top">
+                        <span class="med-vital-title"><span class="vt-ico" style="background:#ede9fe;color:#7c3aed"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="currentColor" stroke="none"/></svg></span>Diastolik</span>
+                        <span class="badge watch" id="diaBadge">TUNGGU</span>
+                      </div>
+                      <div class="med-compact-value" id="diaWrap"><span id="diaValue">--</span><span class="med-unit">mmHg</span></div>
+                      <div class="med-range">Normal: 60 – 80 mmHg</div>
+                      <div class="bar med-bar"><div class="bar-fill" id="diaBar" style="width:6%"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+ 
+              <div class="dash-section-label" style="margin-top:2px">Gelombang Tekanan Manset</div>
+ 
+              <div class="ecg-wrap glass med-ecg">
+                <div class="ecg-head">
+                  <div class="ecg-title-block">
+                    <div class="ecg-icon-wrap">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h2l2-4 3 8 2-5 2 5 3-8 2 4h2"/></svg>
+                    </div>
+                    <div>
+                      <h3>Tekanan Manset · mmHg</h3>
+                      <span class="ecg-sub">Pembacaan tekanan real-time</span>
+                    </div>
+                  </div>
+                  <span class="ecg-badge-pill live" id="ecgBadge">STREAMING</span>
+                </div>
+                <div class="ecg-stage">
+                  <div class="ecg-overlay-labels">
+                    <span>Tekanan (mmHg)</span>
+                    <span>Waktu</span>
+                  </div>
+                  <canvas id="ecgCanvas"></canvas>
+                </div>
+              </div>
+            </div>
+          </section>
+ 
+          <!-- PATIENT RECORD -->
+          <section class="page" id="page-patient">
+            <div class="record-page">
+              <div class="record-banner glass">
+                <div class="record-banner-bg"></div>
+                <div class="record-profile">
+                  <div class="record-avatar-ring">
+                    <div class="patient-avatar" id="viewAvatar">?</div>
+                  </div>
+                  <div class="record-profile-main">
+                    <h2 id="viewName">Belum ada pasien</h2>
+                    <div class="patient-chips">
+                      <span class="patient-chip" id="viewId">Tidak ada ID</span>
+                      <span class="patient-chip loc">Bed <span id="viewBed">--</span> &middot; Ruang <span id="viewWard">--</span></span>
+                    </div>
+                  </div>
+                  <button type="button" class="btn btn-primary btn-glow" id="btnEditPatient">&#9998; Edit</button>
+                </div>
+              </div>
+ 
+              <div class="record-scroll">
+                <div>
+                  <h4 class="record-section-title">Informasi Pribadi</h4>
+                  <div class="record-stats-row">
+                    <div class="record-stat glass rc-age">
+                      <span class="record-stat-icon">&#127874;</span>
+                      <span class="record-stat-label">Usia</span>
+                      <span class="record-stat-value" id="viewAge">--</span>
+                    </div>
+                    <div class="record-stat glass rc-gender">
+                      <span class="record-stat-icon">&#9895;</span>
+                      <span class="record-stat-label">Jenis Kelamin</span>
+                      <span class="record-stat-value" id="viewGender">--</span>
+                    </div>
+                    <div class="record-stat glass rc-blood">
+                      <span class="record-stat-icon">&#128167;</span>
+                      <span class="record-stat-label">Gol. Darah</span>
+                      <span class="record-stat-value" id="viewBlood">--</span>
+                    </div>
+                  </div>
+                </div>
+ 
+                <div>
+                  <h4 class="record-section-title">Kontak &amp; ID</h4>
+                  <div class="record-contact-row">
+                    <div class="record-detail-card glass rc-phone">
+                      <span class="field-icon ic-contact">&#128222;</span>
+                      <div>
+                        <div class="record-detail-label">Telepon</div>
+                        <div class="record-detail-value" id="viewContact">--</div>
+                      </div>
+                    </div>
+                    <div class="record-detail-card glass rc-id">
+                      <span class="field-icon ic-id">&#127380;</span>
+                      <div>
+                        <div class="record-detail-label">ID Pasien</div>
+                        <div class="record-detail-value" id="viewIdDetail">--</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+ 
+                <div class="record-notes-card glass">
+                  <h4 class="record-section-title">&#128221; Catatan Klinis</h4>
+                  <div class="record-notes-body" id="viewNotes">Belum ada catatan.</div>
+                </div>
+              </div>
+            </div>
+          </section>
+ 
+          <div class="patient-modal" id="patientModal">
+            <div class="patient-modal-backdrop" id="patientModalBackdrop"></div>
+            <div class="patient-modal-card glass">
+              <div class="patient-modal-head">
+                <h3><span class="field-icon ic-name">&#128100;</span>Edit Data Pasien</h3>
+                <button type="button" class="btn-icon" id="btnClosePatientModal" title="Close">&times;</button>
+              </div>
+              <form id="patientForm" class="form-grid">
+                <div class="form-field">
+                  <label for="inpName"><span class="field-icon ic-name">&#128100;</span>Nama Lengkap</label>
+                  <input type="text" id="inpName" name="name" placeholder="Masukkan nama pasien" />
+                </div>
+                <div class="form-field">
+                  <label for="inpId"><span class="field-icon ic-id">&#127380;</span>ID Pasien</label>
+                  <input type="text" id="inpId" name="patientId" placeholder="Contoh: PT-2048" />
+                </div>
+                <div class="form-field">
+                  <label for="inpBed"><span class="field-icon ic-bed">&#128719;</span>Bed</label>
+                  <input type="text" id="inpBed" name="bed" placeholder="Contoh: 03" />
+                </div>
+                <div class="form-field">
+                  <label for="inpWard"><span class="field-icon ic-ward">&#127973;</span>Ruang</label>
+                  <input type="text" id="inpWard" name="ward" placeholder="Contoh: ICU" />
+                </div>
+                <div class="form-field">
+                  <label for="inpAge"><span class="field-icon ic-age">&#127874;</span>Usia</label>
+                  <input type="number" id="inpAge" name="age" min="0" max="130" placeholder="Tahun" />
+                </div>
+                <div class="form-field">
+                  <label for="inpBlood"><span class="field-icon ic-blood">&#128167;</span>Golongan Darah</label>
+                  <select id="inpBlood" name="bloodGroup">
+                    <option value="">Pilih</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="inpGender"><span class="field-icon ic-gender">&#9895;</span>Jenis Kelamin</label>
+                  <select id="inpGender" name="gender">
+                    <option value="">Pilih</option>
+                    <option value="Laki-laki">Laki-laki</option>
+                    <option value="Perempuan">Perempuan</option>
+                    <option value="Lainnya">Lainnya</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="inpContact"><span class="field-icon ic-contact">&#128222;</span>Kontak</label>
+                  <input type="text" id="inpContact" name="contact" placeholder="Telepon atau email" />
+                </div>
+                <div class="form-field full">
+                  <label for="inpNotes"><span class="field-icon ic-notes">&#128221;</span>Catatan</label>
+                  <textarea id="inpNotes" name="notes" placeholder="Catatan medis, alergi, dll."></textarea>
+                </div>
+              </form>
+              <div class="form-actions">
+                <button type="button" class="btn btn-primary" id="btnSavePatient">Simpan</button>
+                <button type="button" class="btn btn-secondary" id="btnCancelPatient">Batal</button>
+                <button type="button" class="btn btn-danger" id="btnClearPatient">Hapus Semua</button>
+              </div>
+              <div class="save-msg" id="saveMsg"></div>
+            </div>
+          </div>
+ 
+          <!-- DATA LOGGING -->
+          <section class="page" id="page-logging">
+            <div class="logging-page">
+              <div class="logging-toolbar glass">
+                <div class="logging-controls">
+                  <label for="logInterval">Interval</label>
+                  <select id="logInterval">
+                    <option value="2000">2 detik</option>
+                    <option value="3000">3 detik</option>
+                    <option value="5000" selected>5 detik</option>
+                    <option value="10000">10 detik</option>
+                    <option value="15000">15 detik</option>
+                    <option value="30000">30 detik</option>
+                    <option value="60000">60 detik</option>
+                  </select>
+                  <button type="button" class="btn btn-log btn-log-start" id="btnLogStart">&#9654; Mulai</button>
+                  <button type="button" class="btn btn-log btn-log-stop" id="btnLogStop">&#9632; Berhenti</button>
+                  <button type="button" class="btn btn-log btn-secondary" id="btnLogClear">Hapus</button>
+                  <button type="button" class="btn btn-log btn-log-export" id="btnLogExport">&#128196; Export Excel</button>
+                </div>
+                <div class="logging-stats">
+                  <span id="logCount">0 data</span>
+                  <span class="log-status-pill stopped" id="logStatus">Berhenti</span>
+                </div>
+              </div>
+              <div class="logging-table-wrap glass">
+                <div class="logging-table-head">
+                  <h4>&#128202; Log Data Vital</h4>
+                  <span style="font-size:0.72rem;color:var(--muted);font-weight:700" id="logIntervalLabel">Setiap 5s</span>
+                </div>
+                <div class="logging-table-scroll">
+                  <table class="log-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Waktu</th>
+                        <th>BPM</th>
+                        <th>SpO&#8322; (%)</th>
+                        <th>Suhu (&deg;C)</th>
+                        <th>SYS (mmHg)</th>
+                        <th>DIA (mmHg)</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                      <tr><td colspan="8" class="log-empty">Belum ada data. Tekan Mulai untuk mulai merekam.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+ 
+          <!-- ALERTS -->
+          <section class="page" id="page-alerts">
+            <div class="alerts-page">
+              <div class="alerts-hero glass">
+                <div>
+                  <h3>&#128680; Pusat Peringatan Klinis</h3>
+                  <p>Status sensor live, peringatan &amp; saran perawatan</p>
+                </div>
+                <span class="alerts-status-badge good" id="alertBadge">AMAN</span>
+              </div>
+ 
+              <div class="alerts-summary">
+                <div class="alerts-summary-card warn glass">
+                  <span id="alertWarnCount">0</span>Peringatan
+                </div>
+                <div class="alerts-summary-card ok glass">
+                  <span id="alertOkCount">0</span>Normal
+                </div>
+                <div class="alerts-summary-card info glass">
+                  <span id="alertInfoCount">0</span>Info
+                </div>
+              </div>
+ 
+              <div class="alerts-scroll">
+                <div class="alerts-section">
+                  <h4 class="alerts-section-title">&#10084; Pemantauan Jantung</h4>
+                  <div class="alert-row alert-info glass" id="alertRow1">
+                    <div class="alert-row-icon" id="alertIcon1">&#10084;</div>
+                    <div class="alert-row-body">
+                      <div class="alert-row-top">
+                        <strong id="alertTitle1">Detak Jantung</strong>
+                        <span class="alert-pill info" id="alertPill1">INFO</span>
+                      </div>
+                      <p id="alertMsg1">Menunggu data sensor...</p>
+                      <p class="alert-tip" id="alertTip1">Normal: 60–100 BPM.</p>
+                    </div>
+                  </div>
+                  <div class="alert-row alert-info glass" id="alertRow2">
+                    <div class="alert-row-icon" id="alertIcon2">&#9889;</div>
+                    <div class="alert-row-body">
+                      <div class="alert-row-top">
+                        <strong id="alertTitle2">Tekanan Darah</strong>
+                        <span class="alert-pill info" id="alertPill2">INFO</span>
+                      </div>
+                      <p id="alertMsg2">Memeriksa tekanan darah...</p>
+                      <p class="alert-tip" id="alertTip2">Normal: SYS 90-120, DIA 60-80 mmHg.</p>
+                    </div>
+                  </div>
+                </div>
+ 
+                <div class="alerts-section">
+                  <h4 class="alerts-section-title">&#128167; Oksigen &amp; Pernapasan</h4>
+                  <div class="alert-row alert-info glass" id="alertRow3">
+                    <div class="alert-row-icon" id="alertIcon3">O&#8322;</div>
+                    <div class="alert-row-body">
+                      <div class="alert-row-top">
+                        <strong id="alertTitle3">Oksigen Darah (SpO&#8322;)</strong>
+                        <span class="alert-pill info" id="alertPill3">INFO</span>
+                      </div>
+                      <p id="alertMsg3">Letakkan jari pada sensor oksimeter.</p>
+                      <p class="alert-tip" id="alertTip3">Normal SpO&#8322; ≥ 95%.</p>
+                    </div>
+                  </div>
+                </div>
+ 
+                <div class="alerts-section">
+                  <h4 class="alerts-section-title">&#127777; Pemantauan Suhu</h4>
+                  <div class="alert-row alert-info glass" id="alertRow4">
+                    <div class="alert-row-icon" id="alertIcon4">&#127777;</div>
+                    <div class="alert-row-body">
+                      <div class="alert-row-top">
+                        <strong id="alertTitle4">Suhu Tubuh</strong>
+                        <span class="alert-pill info" id="alertPill4">INFO</span>
+                      </div>
+                      <p id="alertMsg4">Memantau suhu tubuh...</p>
+                      <p class="alert-tip" id="alertTip4">Normal: 36.1–37.2 &deg;C.</p>
+                    </div>
+                  </div>
+                </div>
+ 
+                <div class="alerts-section">
+                  <h4 class="alerts-section-title">&#128225; Status Sistem</h4>
+                  <div class="alert-row alert-info glass" id="alertRow6">
+                    <div class="alert-row-icon" id="alertIcon6">&#128246;</div>
+                    <div class="alert-row-body">
+                      <div class="alert-row-top">
+                        <strong id="alertTitle6">Koneksi Perangkat</strong>
+                        <span class="alert-pill info" id="alertPill6">INFO</span>
+                      </div>
+                      <p id="alertMsg6">Menghubungkan ke monitor ESP32...</p>
+                      <p class="alert-tip" id="alertTip6">Pastikan ESP32 menyala dan terhubung ke WiFi.</p>
+                    </div>
+                  </div>
+                </div>
+ 
+                <div class="alerts-suggestions glass">
+                  <h4 class="alerts-section-title">&#128161; Saran Klinis</h4>
+                  <ul class="alert-suggest-list" id="alertSuggestions">
+                    <li>Sistem sedang inisialisasi — saran akan muncul saat data tiba.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+ 
   <script>
-    // ================= KONFIGURASI MQTT =================
+    // ============================================================
+    // PAGE NAVIGATION
+    // ============================================================
+    const $ = (id) => document.getElementById(id);
+    const pages = {
+      dashboard: { title: "Monitor Vital", sub: "Pemantauan jantung dan fisiologi real-time" },
+      patient: { title: "Data Pasien", sub: "Lihat dan edit informasi pasien" },
+      logging: { title: "Log Data", sub: "Rekam data vital dengan interval tertentu" },
+      alerts: { title: "Peringatan Klinis", sub: "Peringatan sistem dan status sensor" }
+    };
+    
+    document.querySelectorAll('.nav-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const page = btn.dataset.page;
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-' + page).classList.add('active');
+        document.getElementById('pageTitle').textContent = pages[page].title;
+        document.getElementById('pageSubtitle').textContent = pages[page].sub;
+        if (page === 'dashboard') setTimeout(() => drawECG(pressureBuffer), 100);
+      });
+    });
+ 
+    // ============================================================
+    // MQTT CONFIG - SESUAI DENGAN PROGRAM ARDUINO
+    // ============================================================
     const MQTT_CONFIG = {
-      broker: 'wss://broker.hivemq.com:8000/mqtt',
+      broker: 'wss://broker.hivemq.com:8884/mqtt',
       options: {
-        clientId: 'web_dashboard_' + Math.random().toString(16).substr(2, 8),
+        clientId: 'web_' + Math.random().toString(16).substr(2, 8),
         keepalive: 60,
-        reconnectPeriod: 5000,
+        reconnectPeriod: 3000,
         connectTimeout: 30000,
         clean: true,
       },
       topics: {
-        readings: 'sensorReadings',  // Topic dari Arduino
-        control: 'sensorControl'     // Topic untuk kontrol
+        readings: 'sensorReadings',
+        control: 'sensorControl'
       }
     };
-
-    // ================= STATE =================
-    let mqttClient = null;
+ 
+    // ============================================================
+    // STATE
+    // ============================================================
+    let client = null;
     let isConnected = false;
     let logData = [];
     let logCounter = 0;
-    let ecgBuffer = [];
-    const ECG_BUFFER_SIZE = 150;
+    let pressureBuffer = [];
+    const PRESSURE_BUFFER_SIZE = 200;
+    let lastValues = {};
+    let lastPressureTime = 0;
     let isLogging = false;
     let logInterval = null;
-    let lastValues = {};
-
-    // ================= MQTT FUNCTIONS =================
+ 
+    // ============================================================
+    // MQTT FUNCTIONS
+    // ============================================================
     function connectMQTT() {
-      updateMQTTStatus('Connecting...', 'connecting');
-      
+      updateMQTTStatus('Menghubungkan...', 'connecting');
       try {
-        mqttClient = mqtt.connect(MQTT_CONFIG.broker, MQTT_CONFIG.options);
-        
-        mqttClient.on('connect', () => {
+        client = mqtt.connect(MQTT_CONFIG.broker, MQTT_CONFIG.options);
+        client.on('connect', () => {
           console.log('[MQTT] Connected');
           isConnected = true;
           updateMQTTStatus('Online', 'online');
           document.getElementById('liveDot').className = 'live-dot';
           document.getElementById('connText').textContent = 'Online';
-          
-          mqttClient.subscribe(MQTT_CONFIG.topics.readings);
-          mqttClient.subscribe(MQTT_CONFIG.topics.control);
+          client.subscribe(MQTT_CONFIG.topics.readings);
           console.log('[MQTT] Subscribed to:', MQTT_CONFIG.topics.readings);
         });
-        
-        mqttClient.on('message', (topic, message) => {
+        client.on('message', (topic, message) => {
           const msg = message.toString();
-          console.log('[MQTT] Received:', topic);
-          
-          if (topic === MQTT_CONFIG.topics.readings) {
-            processSensorData(msg);
-          }
+          if (topic === MQTT_CONFIG.topics.readings) processSensorData(msg);
         });
-        
-        mqttClient.on('error', (err) => {
+        client.on('error', (err) => {
           console.error('[MQTT] Error:', err);
           updateMQTTStatus('Error', 'offline');
           document.getElementById('liveDot').className = 'live-dot off';
           document.getElementById('connText').textContent = 'Error';
         });
-        
-        mqttClient.on('close', () => {
+        client.on('close', () => {
           console.log('[MQTT] Disconnected');
           isConnected = false;
           updateMQTTStatus('Offline', 'offline');
           document.getElementById('liveDot').className = 'live-dot off';
           document.getElementById('connText').textContent = 'Offline';
         });
-        
-        mqttClient.on('reconnect', () => {
+        client.on('reconnect', () => {
           console.log('[MQTT] Reconnecting...');
-          updateMQTTStatus('Reconnecting...', 'connecting');
+          updateMQTTStatus('Menghubung ulang...', 'connecting');
         });
-        
       } catch (err) {
         console.error('[MQTT] Connection error:', err);
         updateMQTTStatus('Error', 'offline');
         setTimeout(connectMQTT, 5000);
       }
     }
-
+ 
     function sendCommand(command) {
-      if (!isConnected || !mqttClient) {
+      if (!isConnected || !client) {
         alert('MQTT tidak terhubung! Periksa koneksi.');
         return;
       }
-      
-      mqttClient.publish(MQTT_CONFIG.topics.control, command);
+      client.publish(MQTT_CONFIG.topics.control, command);
       console.log('[MQTT] Command sent:', command);
-      
-      // Feedback visual
-      const btns = document.querySelectorAll('.nav-item, .btn');
-      btns.forEach(btn => {
-        if (btn.textContent && btn.textContent.includes('Start')) {
-          btn.textContent = '✅ Sent';
-          setTimeout(() => { btn.textContent = '▶ Start'; }, 1500);
-        }
-      });
     }
-
+ 
     function updateMQTTStatus(text, state) {
-      // Update status di sidebar
       const connText = document.getElementById('connText');
       if (connText) connText.textContent = text;
-      
       const liveDot = document.getElementById('liveDot');
-      if (liveDot) {
-        liveDot.className = 'live-dot' + (state === 'online' ? '' : ' off');
-      }
+      if (liveDot) liveDot.className = 'live-dot' + (state === 'online' ? '' : ' off');
     }
-
-    // ================= PROCESS SENSOR DATA =================
+ 
+    // ============================================================
+    // CEK STATUS KESEHATAN
+    // ============================================================
+    function checkHealthStatus(data) {
+      let status = 'AMAN';
+      let warnings = [];
+      if (data.heartRate !== undefined && data.heartRate > 0) {
+        if (data.heartRate < 60 || data.heartRate > 100) {
+          status = 'BUTUH PERAWATAN';
+          warnings.push('HR ' + (data.heartRate < 60 ? 'Rendah' : 'Tinggi') + ' (' + data.heartRate + ' BPM)');
+        }
+      }
+      if (data.spo2 !== undefined && data.spo2 > 0) {
+        if (data.spo2 < 95) {
+          status = 'BUTUH PERAWATAN';
+          warnings.push('SpO2 Rendah (' + data.spo2 + '%)');
+        }
+      }
+      if (data.temperature !== undefined && data.temperature > 0) {
+        if (data.temperature < 36.1 || data.temperature > 37.2) {
+          status = 'BUTUH PERAWATAN';
+          warnings.push('Suhu ' + (data.temperature < 36.1 ? 'Rendah' : 'Tinggi') + ' (' + data.temperature.toFixed(1) + '°C)');
+        }
+      }
+      if (data.systolic !== undefined && data.systolic > 0 && data.diastolic !== undefined && data.diastolic > 0) {
+        if (data.systolic < 90 || data.systolic > 120 || data.diastolic < 60 || data.diastolic > 80) {
+          status = 'BUTUH PERAWATAN';
+          warnings.push('Tekanan Darah ' + data.systolic + '/' + data.diastolic + ' mmHg');
+        }
+      }
+      return { status, warnings };
+    }
+ 
+    // ============================================================
+    // PROCESS SENSOR DATA - SESUAI DENGAN ARDUINO
+    // ============================================================
     function processSensorData(jsonStr) {
       try {
         const data = JSON.parse(jsonStr);
-        
-        // Update Heart Rate
+ 
+        // Heart Rate
         if (data.heartRate !== undefined && data.heartRate > 0) {
           lastValues.heartRate = data.heartRate;
           document.getElementById('bpm').textContent = data.heartRate;
           updateBadge('bpmBadge', data.heartRate, 60, 100);
           updateBar('bpmBar', data.heartRate, 60, 200);
-          
-          // Update heart icon animation
           const heartIcon = document.getElementById('heartIcon');
           if (heartIcon) {
             heartIcon.style.setProperty('--beat-dur', (60 / data.heartRate) + 's');
+            heartIcon.classList.add('beating');
           }
         }
-        
-        // Update SpO2
+ 
+        // SpO2
         if (data.spo2 !== undefined && data.spo2 > 0) {
           lastValues.spo2 = data.spo2;
           document.getElementById('spo2').textContent = data.spo2;
           updateBadge('spo2Badge', data.spo2, 95, 100);
           updateBar('spo2Bar', data.spo2, 70, 100);
         }
-        
-        // Update Body Temperature
+ 
+        // Temperature
         if (data.temperature !== undefined && data.temperature > 0) {
           lastValues.temperature = data.temperature;
           document.getElementById('bodyTemp').textContent = data.temperature.toFixed(1);
           updateBadge('tempBadge', data.temperature, 36.1, 37.2);
           updateBar('bodyTempBar', data.temperature, 35, 39);
         }
-        
-        // Update Raw Temperature
-        if (data.tempRaw !== undefined && data.tempRaw > 0) {
-          lastValues.tempRaw = data.tempRaw;
-        }
-        
-        // Update Blood Pressure
+ 
+        // Sistolik
         if (data.systolic !== undefined && data.systolic > 0) {
           lastValues.systolic = data.systolic;
-          document.getElementById('systolic').textContent = data.systolic;
+          document.getElementById('sysValue').textContent = data.systolic;
+          updateBadge('sysBadge', data.systolic, 90, 120);
+          updateBar('sysBar', data.systolic, 60, 200);
         }
-        
+ 
+        // Diastolik
         if (data.diastolic !== undefined && data.diastolic > 0) {
           lastValues.diastolic = data.diastolic;
-          document.getElementById('diastolic').textContent = data.diastolic;
-          updateBadge('bpBadge', lastValues.systolic || data.systolic, 90, 120);
+          document.getElementById('diaValue').textContent = data.diastolic;
+          updateBadge('diaBadge', data.diastolic, 60, 80);
+          updateBar('diaBar', data.diastolic, 40, 120);
         }
-        
-        // Update ECG Raw Wave
-        if (data.raw !== undefined) {
-          updateECG(data.raw);
+ 
+        // mmHg Live - Grafik Tekanan Manset
+        if (data.mmHgLive !== undefined) {
+          updatePressureWaveform(data.mmHgLive);
         }
-        
+ 
         // Update timestamp
         const now = new Date();
-        const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
-        document.getElementById('lastUpdate').textContent = timeStr;
-        document.getElementById('clock').textContent = timeStr;
-        
-        // Update alert badges
-        updateAlerts(data);
-        
-        // Log data if logging is active
-        if (isLogging && (data.heartRate !== undefined || data.spo2 !== undefined)) {
-          addLogEntry(data);
-        }
-        
+        document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('id-ID');
+        document.getElementById('clock').textContent = now.toLocaleTimeString('id-ID');
+ 
+        // Update alerts
+        const health = checkHealthStatus(data);
+        updateAlerts(data, health);
+ 
+        // Log if active
+        if (isLogging) addLogEntry(data, health);
+ 
       } catch (err) {
         console.error('Parse error:', err);
       }
     }
-
-    // ================= UPDATE FUNCTIONS =================
+ 
+    // ============================================================
+    // UPDATE FUNCTIONS
+    // ============================================================
     function updateBadge(elementId, value, min, max) {
       const el = document.getElementById(elementId);
       if (!el) return;
-      
       if (value === undefined || value === null || value === 0) {
-        el.textContent = 'WAIT';
+        el.textContent = 'TUNGGU';
         el.className = 'badge watch';
         return;
       }
-      
       if (value >= min && value <= max) {
-        el.textContent = 'NORMAL';
+        el.textContent = 'AMAN';
         el.className = 'badge good';
-      } else if (value < min) {
-        el.textContent = 'LOW';
-        el.className = 'badge watch';
       } else {
-        el.textContent = 'HIGH';
+        el.textContent = 'PERAWATAN';
         el.className = 'badge bad';
       }
     }
-
+ 
     function updateBar(elementId, value, min, max) {
       const el = document.getElementById(elementId);
       if (!el) return;
-      
       const percentage = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
       el.style.width = percentage + '%';
     }
-
-    function updateECG(rawValue) {
-      // Normalize raw value
-      let normalized = 0;
-      if (rawValue > 100) {
-        normalized = (rawValue / 20) - 50;
-        normalized = Math.max(-120, Math.min(120, normalized));
-      } else {
-        normalized = rawValue / 5;
-      }
-      
-      ecgBuffer.push(normalized);
-      if (ecgBuffer.length > ECG_BUFFER_SIZE) {
-        ecgBuffer.shift();
-      }
-      
-      drawECG(ecgBuffer);
+ 
+    // ============================================================
+    // GRAFIK TEKANAN MANSET
+    // ============================================================
+    function updatePressureWaveform(pressureValue) {
+      const now = performance.now();
+      if (now - lastPressureTime < 30) return;
+      lastPressureTime = now;
+ 
+      let normalized = Math.min(200, Math.max(0, pressureValue));
+      pressureBuffer.push(normalized);
+      if (pressureBuffer.length > PRESSURE_BUFFER_SIZE) pressureBuffer.shift();
+      drawECG(pressureBuffer);
+      document.getElementById('ecgBadge').textContent = '📡 STREAMING';
     }
-
-    // ================= ECG CANVAS DRAWING =================
+ 
     function drawECG(data) {
       const canvas = document.getElementById('ecgCanvas');
       if (!canvas) return;
       
       const rect = canvas.parentElement.getBoundingClientRect();
-      canvas.width = rect.width || 400;
-      canvas.height = rect.height || 200;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = (rect.width || 400) * dpr;
+      canvas.height = (rect.height || 200) * dpr;
+      canvas.style.width = (rect.width || 400) + 'px';
+      canvas.style.height = (rect.height || 200) + 'px';
       
       const ctx = canvas.getContext('2d');
       const w = canvas.width;
       const h = canvas.height;
-      
       ctx.clearRect(0, 0, w, h);
-      
       if (data.length < 2) return;
-      
-      // Grid lines
-      ctx.strokeStyle = 'rgba(103, 232, 249, 0.08)';
-      ctx.lineWidth = 0.5;
-      for (let x = 0; x < w; x += 24) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
+ 
+      // Grid
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.08)';
+      ctx.lineWidth = 1;
+      const gridStep = 24 * dpr;
+      for (let x = gridStep; x < w; x += gridStep) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
       }
-      for (let y = 0; y < h; y += 24) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
+      for (let y = gridStep; y < h; y += gridStep) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
       }
-      
-      // ECG line
+ 
+      // Area fill
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+      grad.addColorStop(1, 'rgba(59, 130, 246, 0.02)');
       ctx.beginPath();
-      ctx.strokeStyle = '#34d399';
-      ctx.lineWidth = 2;
-      ctx.shadowColor = 'rgba(52, 211, 153, 0.3)';
-      ctx.shadowBlur = 8;
-      
       const step = w / data.length;
-      const midY = h / 2;
-      const scale = h / 3;
-      
+      const maxPressure = 200;
+      const minPressure = 0;
       for (let i = 0; i < data.length; i++) {
         const x = i * step;
-        const y = midY - (data[i] / 120) * scale;
+        const y = h - ((data[i] - minPressure) / (maxPressure - minPressure)) * (h - 20 * dpr) - 10 * dpr;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
-      
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+ 
+      // Waveform line
+      ctx.beginPath();
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2.5 * dpr;
+      ctx.shadowColor = 'rgba(59, 130, 246, 0.3)';
+      ctx.shadowBlur = 10 * dpr;
+      for (let i = 0; i < data.length; i++) {
+        const x = i * step;
+        const y = h - ((data[i] - minPressure) / (maxPressure - minPressure)) * (h - 20 * dpr) - 10 * dpr;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
       ctx.stroke();
       ctx.shadowBlur = 0;
+ 
+      // Reference lines
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.15)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.setLineDash([6 * dpr, 6 * dpr]);
+      
+      const y120 = h - ((120 - minPressure) / (maxPressure - minPressure)) * (h - 20 * dpr) - 10 * dpr;
+      ctx.beginPath(); ctx.moveTo(0, y120); ctx.lineTo(w, y120); ctx.stroke();
+      
+      const y80 = h - ((80 - minPressure) / (maxPressure - minPressure)) * (h - 20 * dpr) - 10 * dpr;
+      ctx.beginPath(); ctx.moveTo(0, y80); ctx.lineTo(w, y80); ctx.stroke();
+      
+      ctx.setLineDash([]);
+ 
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.4)';
+      ctx.font = (10 * dpr) + 'px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText('120 mmHg', w - 80 * dpr, y120 - 4 * dpr);
+      ctx.fillText('80 mmHg', w - 80 * dpr, y80 - 4 * dpr);
+ 
+      if (data.length > 0) {
+        const lastVal = data[data.length - 1];
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.6)';
+        ctx.font = 'bold ' + (12 * dpr) + 'px "Plus Jakarta Sans", sans-serif';
+        ctx.fillText(Math.round(lastVal) + ' mmHg', 10 * dpr, 20 * dpr);
+      }
     }
-
-    // ================= ALERTS UPDATE =================
-    function updateAlerts(data) {
-      const alerts = {
-        heartRate: { id: 'alertRow1', title: 'alertTitle1', msg: 'alertMsg1', pill: 'alertPill1', icon: 'alertIcon1' },
-        spo2: { id: 'alertRow3', title: 'alertTitle3', msg: 'alertMsg3', pill: 'alertPill3', icon: 'alertIcon3' },
-        temperature: { id: 'alertRow4', title: 'alertTitle4', msg: 'alertMsg4', pill: 'alertPill4', icon: 'alertIcon4' }
-      };
-      
-      let warnCount = 0;
-      let okCount = 0;
-      let infoCount = 0;
-      
-      // Heart Rate Alert
+ 
+    // ============================================================
+    // ALERTS
+    // ============================================================
+    function updateAlerts(data, health) {
+      let warnCount = 0, okCount = 0, infoCount = 0;
+ 
+      // Heart Rate
       if (data.heartRate !== undefined && data.heartRate > 0) {
         const hr = data.heartRate;
-        const row = document.getElementById(alerts.heartRate.id);
+        const row = document.getElementById('alertRow1');
         if (hr >= 60 && hr <= 100) {
           row.className = 'alert-row alert-ok glass';
-          document.getElementById(alerts.heartRate.pill).textContent = 'NORMAL';
-          document.getElementById(alerts.heartRate.pill).className = 'alert-pill ok';
-          document.getElementById(alerts.heartRate.msg).textContent = `Heart rate: ${hr} BPM (Normal)`;
-          okCount++;
-        } else {
-          row.className = 'alert-row alert-warn glass';
-          document.getElementById(alerts.heartRate.pill).textContent = hr < 60 ? 'LOW' : 'HIGH';
-          document.getElementById(alerts.heartRate.pill).className = 'alert-pill warn';
-          document.getElementById(alerts.heartRate.msg).textContent = `Heart rate: ${hr} BPM (${hr < 60 ? 'Bradycardia' : 'Tachycardia'})`;
-          warnCount++;
-        }
-      } else {
-        infoCount++;
-      }
-      
-      // SpO2 Alert
-      if (data.spo2 !== undefined && data.spo2 > 0) {
-        const spo2 = data.spo2;
-        const row = document.getElementById(alerts.spo2.id);
-        if (spo2 >= 95) {
-          row.className = 'alert-row alert-ok glass';
-          document.getElementById(alerts.spo2.pill).textContent = 'NORMAL';
-          document.getElementById(alerts.spo2.pill).className = 'alert-pill ok';
-          document.getElementById(alerts.spo2.msg).textContent = `SpO2: ${spo2}% (Normal)`;
+          document.getElementById('alertPill1').textContent = 'AMAN';
+          document.getElementById('alertPill1').className = 'alert-pill ok';
+          document.getElementById('alertMsg1').textContent = `Detak jantung: ${hr} BPM (Normal)`;
           okCount++;
         } else {
           row.className = 'alert-row alert-bad glass';
-          document.getElementById(alerts.spo2.pill).textContent = 'LOW';
-          document.getElementById(alerts.spo2.pill).className = 'alert-pill bad';
-          document.getElementById(alerts.spo2.msg).textContent = `SpO2: ${spo2}% (Hypoxemia)`;
+          document.getElementById('alertPill1').textContent = 'PERAWATAN';
+          document.getElementById('alertPill1').className = 'alert-pill bad';
+          document.getElementById('alertMsg1').textContent = `Detak jantung: ${hr} BPM (${hr < 60 ? 'Bradikardia' : 'Takikardia'})`;
           warnCount++;
         }
-      } else {
-        infoCount++;
-      }
-      
-      // Temperature Alert
-      if (data.temperature !== undefined && data.temperature > 0) {
-        const temp = data.temperature;
-        const row = document.getElementById(alerts.temperature.id);
-        if (temp >= 36.1 && temp <= 37.2) {
+      } else infoCount++;
+ 
+      // Blood Pressure
+      if (data.systolic !== undefined && data.systolic > 0 && data.diastolic !== undefined && data.diastolic > 0) {
+        const sys = data.systolic, dia = data.diastolic;
+        const row = document.getElementById('alertRow2');
+        const isNormal = (sys >= 90 && sys <= 120) && (dia >= 60 && dia <= 80);
+        if (isNormal) {
           row.className = 'alert-row alert-ok glass';
-          document.getElementById(alerts.temperature.pill).textContent = 'NORMAL';
-          document.getElementById(alerts.temperature.pill).className = 'alert-pill ok';
-          document.getElementById(alerts.temperature.msg).textContent = `Body temp: ${temp.toFixed(1)}°C (Normal)`;
+          document.getElementById('alertPill2').textContent = 'AMAN';
+          document.getElementById('alertPill2').className = 'alert-pill ok';
+          document.getElementById('alertMsg2').textContent = `TD: ${sys}/${dia} mmHg (Normal)`;
           okCount++;
         } else {
-          row.className = 'alert-row alert-warn glass';
-          document.getElementById(alerts.temperature.pill).textContent = temp < 36.1 ? 'LOW' : 'HIGH';
-          document.getElementById(alerts.temperature.pill).className = 'alert-pill warn';
-          document.getElementById(alerts.temperature.msg).textContent = `Body temp: ${temp.toFixed(1)}°C (${temp < 36.1 ? 'Hypothermia' : 'Fever'})`;
+          row.className = 'alert-row alert-bad glass';
+          document.getElementById('alertPill2').textContent = 'PERAWATAN';
+          document.getElementById('alertPill2').className = 'alert-pill bad';
+          document.getElementById('alertMsg2').textContent = `TD: ${sys}/${dia} mmHg (${sys > 120 ? 'Hipertensi' : sys < 90 ? 'Hipotensi' : 'Abnormal'})`;
           warnCount++;
         }
-      } else {
-        infoCount++;
-      }
-      
-      // Update summary
+      } else infoCount++;
+ 
+      // SpO2
+      if (data.spo2 !== undefined && data.spo2 > 0) {
+        const spo2 = data.spo2;
+        const row = document.getElementById('alertRow3');
+        if (spo2 >= 95) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById('alertPill3').textContent = 'AMAN';
+          document.getElementById('alertPill3').className = 'alert-pill ok';
+          document.getElementById('alertMsg3').textContent = `SpO2: ${spo2}% (Normal)`;
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-bad glass';
+          document.getElementById('alertPill3').textContent = 'PERAWATAN';
+          document.getElementById('alertPill3').className = 'alert-pill bad';
+          document.getElementById('alertMsg3').textContent = `SpO2: ${spo2}% (Hipoksemia)`;
+          warnCount++;
+        }
+      } else infoCount++;
+ 
+      // Temperature
+      if (data.temperature !== undefined && data.temperature > 0) {
+        const temp = data.temperature;
+        const row = document.getElementById('alertRow4');
+        if (temp >= 36.1 && temp <= 37.2) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById('alertPill4').textContent = 'AMAN';
+          document.getElementById('alertPill4').className = 'alert-pill ok';
+          document.getElementById('alertMsg4').textContent = `Suhu: ${temp.toFixed(1)}°C (Normal)`;
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-bad glass';
+          document.getElementById('alertPill4').textContent = 'PERAWATAN';
+          document.getElementById('alertPill4').className = 'alert-pill bad';
+          document.getElementById('alertMsg4').textContent = `Suhu: ${temp.toFixed(1)}°C (${temp < 36.1 ? 'Hipotermia' : 'Demam'})`;
+          warnCount++;
+        }
+      } else infoCount++;
+ 
       document.getElementById('alertWarnCount').textContent = warnCount;
       document.getElementById('alertOkCount').textContent = okCount;
       document.getElementById('alertInfoCount').textContent = infoCount;
-      
-      // Update status badge
+ 
       const badge = document.getElementById('alertBadge');
-      if (warnCount > 0) {
-        badge.textContent = '⚠️ WARNING';
-        badge.className = 'alerts-status-badge watch';
+      if (health && health.status === 'BUTUH PERAWATAN') {
+        badge.textContent = '⚠️ PERAWATAN';
+        badge.className = 'alerts-status-badge bad';
+        const suggestions = document.getElementById('alertSuggestions');
+        let html = '';
+        for (const warning of health.warnings) html += `<li>⚠️ ${warning} - Perlu evaluasi medis</li>`;
+        if (html === '') html = '<li>✅ Semua parameter dalam batas normal</li>';
+        suggestions.innerHTML = html;
       } else if (okCount > 0) {
-        badge.textContent = '✅ SAFE';
+        badge.textContent = '✅ AMAN';
         badge.className = 'alerts-status-badge good';
+        document.getElementById('alertSuggestions').innerHTML = '<li>✅ Semua parameter dalam batas normal. Pasien dalam kondisi baik.</li>';
       } else {
-        badge.textContent = '⏳ WAITING';
+        badge.textContent = '⏳ MENUNGGU';
         badge.className = 'alerts-status-badge info';
       }
     }
-
-    // ================= LOGGING FUNCTIONS =================
-    function addLogEntry(data) {
+ 
+    // ============================================================
+    // LOG DATA
+    // ============================================================
+    function addLogEntry(data, health) {
       const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
-      
+      const timeStr = now.toLocaleTimeString('id-ID');
       const hr = data.heartRate || lastValues.heartRate || 0;
       const spo2 = data.spo2 || lastValues.spo2 || 0;
       const temp = data.temperature || lastValues.temperature || 0;
-      const roomTemp = data.roomTemp || 0;
-      const humidity = data.humidity || 0;
-      
-      if (hr === 0 && spo2 === 0 && temp === 0) return;
-      
+      const sys = data.systolic || lastValues.systolic || 0;
+      const dia = data.diastolic || lastValues.diastolic || 0;
+      if (hr === 0 && spo2 === 0 && temp === 0 && sys === 0 && dia === 0) return;
+      const status = (health && health.status) || 'AMAN';
       logCounter++;
-      logData.push({
-        no: logCounter,
-        time: timeStr,
-        bpm: hr,
-        spo2: spo2,
-        bodyTemp: temp,
-        roomTemp: roomTemp,
-        humidity: humidity
-      });
-      
-      if (logData.length > 100) {
-        logData.shift();
-      }
-      
+      logData.push({ no: logCounter, time: timeStr, bpm: hr, spo2: spo2, bodyTemp: temp, sys: sys, dia: dia, status: status });
+      if (logData.length > 50) logData.shift();
       renderLogTable();
-      document.getElementById('logCount').textContent = logData.length + ' records';
+      document.getElementById('logCount').textContent = logData.length + ' data';
     }
-
+ 
     function renderLogTable() {
       const tbody = document.getElementById('logTableBody');
-      
       if (logData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="log-empty">No data logged yet. Press Start to begin recording.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="log-empty">Belum ada data. Tekan Mulai untuk mulai merekam.</td></tr>`;
         return;
       }
-      
       let html = '';
       for (let i = logData.length - 1; i >= 0; i--) {
         const row = logData[i];
-        html += `
-          <tr>
-            <td>${row.no}</td>
-            <td>${row.time}</td>
-            <td>${row.bpm > 0 ? row.bpm : '-'}</td>
-            <td>${row.spo2 > 0 ? row.spo2 : '-'}</td>
-            <td>${row.bodyTemp > 0 ? row.bodyTemp.toFixed(1) : '-'}</td>
-            <td>${row.roomTemp > 0 ? row.roomTemp.toFixed(1) : '-'}</td>
-            <td>${row.humidity > 0 ? row.humidity.toFixed(1) : '-'}</td>
-          </tr>
-        `;
+        const statusClass = row.status === 'AMAN' ? '' : ' style="color:#ef4444;font-weight:800;"';
+        html += `<tr>
+          <td>${row.no}</td>
+          <td>${row.time}</td>
+          <td>${row.bpm > 0 ? row.bpm : '-'}</td>
+          <td>${row.spo2 > 0 ? row.spo2 : '-'}</td>
+          <td>${row.bodyTemp > 0 ? row.bodyTemp.toFixed(1) : '-'}</td>
+          <td>${row.sys > 0 ? row.sys : '-'}</td>
+          <td>${row.dia > 0 ? row.dia : '-'}</td>
+          <td${statusClass}>${row.status}</td>
+        </tr>`;
       }
-      
       tbody.innerHTML = html;
     }
-
-    // ================= LOGGING CONTROLS =================
+ 
+    // ============================================================
+    // LOG CONTROLS
+    // ============================================================
     document.addEventListener('DOMContentLoaded', () => {
-      // Start logging
       document.getElementById('btnLogStart').addEventListener('click', () => {
         if (isLogging) return;
-        
         const interval = parseInt(document.getElementById('logInterval').value);
         isLogging = true;
-        
-        document.getElementById('logStatus').textContent = 'Running';
+        document.getElementById('logStatus').textContent = 'Berjalan';
         document.getElementById('logStatus').className = 'log-status-pill running';
-        document.getElementById('btnLogStart').textContent = '⏳ Running';
+        document.getElementById('btnLogStart').textContent = '⏳ Berjalan';
         document.getElementById('btnLogStart').disabled = true;
         document.getElementById('logInterval').disabled = true;
-        
         logInterval = setInterval(() => {
           if (Object.keys(lastValues).length > 0) {
-            addLogEntry(lastValues);
+            const health = checkHealthStatus(lastValues);
+            addLogEntry(lastValues, health);
           }
         }, interval);
       });
-      
-      // Stop logging
+ 
       document.getElementById('btnLogStop').addEventListener('click', () => {
         if (!isLogging) return;
-        
         isLogging = false;
         clearInterval(logInterval);
-        
-        document.getElementById('logStatus').textContent = 'Stopped';
+        document.getElementById('logStatus').textContent = 'Berhenti';
         document.getElementById('logStatus').className = 'log-status-pill stopped';
-        document.getElementById('btnLogStart').textContent = '▶ Start';
+        document.getElementById('btnLogStart').textContent = '▶ Mulai';
         document.getElementById('btnLogStart').disabled = false;
         document.getElementById('logInterval').disabled = false;
       });
-      
-      // Clear log
+ 
       document.getElementById('btnLogClear').addEventListener('click', () => {
         if (logData.length === 0) return;
-        if (!confirm('Clear all logged data?')) return;
-        
-        logData = [];
-        logCounter = 0;
+        if (!confirm('Hapus semua data log?')) return;
+        logData = []; logCounter = 0;
         renderLogTable();
-        document.getElementById('logCount').textContent = '0 records';
+        document.getElementById('logCount').textContent = '0 data';
       });
-      
-      // Export CSV
+ 
       document.getElementById('btnLogExport').addEventListener('click', () => {
-        if (logData.length === 0) {
-          alert('No data to export.');
-          return;
-        }
-        
-        let csv = 'No,Time,BPM,SpO2,BodyTemp,RoomTemp,Humidity\n';
+        if (logData.length === 0) { alert('Tidak ada data untuk diexport.'); return; }
+        let csv = 'No,Waktu,BPM,SpO2,Suhu,SYS,DIA,Status\n';
         for (const row of logData) {
-          csv += `${row.no},${row.time},${row.bpm},${row.spo2},${row.bodyTemp.toFixed(1)},${row.roomTemp.toFixed(1)},${row.humidity.toFixed(1)}\n`;
+          csv += `${row.no},${row.time},${row.bpm},${row.spo2},${row.bodyTemp.toFixed(1)},${row.sys},${row.dia},"${row.status}"\n`;
         }
-        
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `vitals_log_${new Date().toISOString().slice(0,10)}.csv`;
+        link.download = `log_vital_${new Date().toISOString().slice(0,10)}.csv`;
         link.click();
         URL.revokeObjectURL(link.href);
       });
-      
-      // Interval selector update
+ 
       document.getElementById('logInterval').addEventListener('change', (e) => {
         const val = parseInt(e.target.value);
-        document.getElementById('logIntervalLabel').textContent = `Every ${val/1000}s`;
+        document.getElementById('logIntervalLabel').textContent = `Setiap ${val/1000}s`;
       });
-    });
-
-    // ================= NAVIGATION =================
-    document.querySelectorAll('.nav-item').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        
-        const page = btn.dataset.page;
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.getElementById('page-' + page).classList.add('active');
-        
-        document.getElementById('pageTitle').textContent = pages[page].title;
-        document.getElementById('pageSubtitle').textContent = pages[page].sub;
-        
-        // Resize canvas when switching to dashboard
-        if (page === 'dashboard') {
-          setTimeout(() => drawECG(ecgBuffer), 100);
+ 
+      // Patient Edit
+      document.getElementById('btnEditPatient').addEventListener('click', () => {
+        document.getElementById('patientModal').classList.add('open');
+      });
+      document.getElementById('btnClosePatientModal').addEventListener('click', () => {
+        document.getElementById('patientModal').classList.remove('open');
+      });
+      document.getElementById('patientModalBackdrop').addEventListener('click', () => {
+        document.getElementById('patientModal').classList.remove('open');
+      });
+      document.getElementById('btnCancelPatient').addEventListener('click', () => {
+        document.getElementById('patientModal').classList.remove('open');
+      });
+ 
+      document.getElementById('btnSavePatient').addEventListener('click', () => {
+        const name = document.getElementById('inpName').value || 'Pasien';
+        const id = document.getElementById('inpId').value || 'Tidak ada ID';
+        const bed = document.getElementById('inpBed').value || '--';
+        const ward = document.getElementById('inpWard').value || '--';
+        const age = document.getElementById('inpAge').value || '--';
+        const gender = document.getElementById('inpGender').value || '--';
+        const blood = document.getElementById('inpBlood').value || '--';
+        const contact = document.getElementById('inpContact').value || '--';
+        const notes = document.getElementById('inpNotes').value || 'Belum ada catatan.';
+        document.getElementById('viewName').textContent = name;
+        document.getElementById('viewId').textContent = id;
+        document.getElementById('viewBed').textContent = bed;
+        document.getElementById('viewWard').textContent = ward;
+        document.getElementById('viewAge').textContent = age;
+        document.getElementById('viewGender').textContent = gender;
+        document.getElementById('viewBlood').textContent = blood;
+        document.getElementById('viewContact').textContent = contact;
+        document.getElementById('viewIdDetail').textContent = id;
+        document.getElementById('viewNotes').textContent = notes;
+        document.getElementById('viewAvatar').textContent = name.charAt(0).toUpperCase();
+        document.getElementById('dashPatientName').textContent = name;
+        document.getElementById('patientModal').classList.remove('open');
+        document.getElementById('saveMsg').textContent = '✅ Data pasien berhasil disimpan!';
+        setTimeout(() => { document.getElementById('saveMsg').textContent = ''; }, 3000);
+      });
+ 
+      document.getElementById('btnClearPatient').addEventListener('click', () => {
+        if (!confirm('Hapus semua data pasien?')) return;
+        document.getElementById('inpName').value = '';
+        document.getElementById('inpId').value = '';
+        document.getElementById('inpBed').value = '';
+        document.getElementById('inpWard').value = '';
+        document.getElementById('inpAge').value = '';
+        document.getElementById('inpGender').value = '';
+        document.getElementById('inpBlood').value = '';
+        document.getElementById('inpContact').value = '';
+        document.getElementById('inpNotes').value = '';
+        document.getElementById('viewName').textContent = 'Belum ada pasien';
+        document.getElementById('viewId').textContent = 'Tidak ada ID';
+        document.getElementById('viewBed').textContent = '--';
+        document.getElementById('viewWard').textContent = '--';
+        document.getElementById('viewAge').textContent = '--';
+        document.getElementById('viewGender').textContent = '--';
+        document.getElementById('viewBlood').textContent = '--';
+        document.getElementById('viewContact').textContent = '--';
+        document.getElementById('viewIdDetail').textContent = '--';
+        document.getElementById('viewNotes').textContent = 'Belum ada catatan.';
+        document.getElementById('viewAvatar').textContent = '?';
+        document.getElementById('dashPatientName').textContent = 'Monitor Pasien';
+        document.getElementById('patientModal').classList.remove('open');
+      });
+ 
+      // Sound toggle
+      document.getElementById('btnSoundToggle').addEventListener('click', function() {
+        this.classList.toggle('muted');
+      });
+ 
+      // Resize
+      window.addEventListener('resize', () => {
+        if (document.getElementById('page-dashboard').classList.contains('active')) {
+          setTimeout(() => drawECG(pressureBuffer), 100);
         }
       });
     });
-
-    // ================= SOUND TOGGLE =================
-    document.getElementById('btnSoundToggle').addEventListener('click', function() {
-      this.classList.toggle('muted');
-    });
-
-    // ================= PATIENT EDIT =================
-    document.getElementById('btnEditPatient').addEventListener('click', () => {
-      document.getElementById('patientModal').classList.add('open');
-    });
-    
-    document.getElementById('btnClosePatientModal').addEventListener('click', () => {
-      document.getElementById('patientModal').classList.remove('open');
-    });
-    
-    document.getElementById('patientModalBackdrop').addEventListener('click', () => {
-      document.getElementById('patientModal').classList.remove('open');
-    });
-    
-    document.getElementById('btnCancelPatient').addEventListener('click', () => {
-      document.getElementById('patientModal').classList.remove('open');
-    });
-
-    // ================= SAVE PATIENT =================
-    document.getElementById('btnSavePatient').addEventListener('click', () => {
-      const name = document.getElementById('inpName').value || 'Patient';
-      const id = document.getElementById('inpId').value || 'No ID';
-      const bed = document.getElementById('inpBed').value || '--';
-      const ward = document.getElementById('inpWard').value || '--';
-      const age = document.getElementById('inpAge').value || '--';
-      const gender = document.getElementById('inpGender').value || '--';
-      const blood = document.getElementById('inpBlood').value || '--';
-      const contact = document.getElementById('inpContact').value || '--';
-      const notes = document.getElementById('inpNotes').value || 'No notes added.';
-      
-      // Update view
-      document.getElementById('viewName').textContent = name;
-      document.getElementById('viewId').textContent = id;
-      document.getElementById('viewBed').textContent = bed;
-      document.getElementById('viewWard').textContent = ward;
-      document.getElementById('viewAge').textContent = age;
-      document.getElementById('viewGender').textContent = gender;
-      document.getElementById('viewBlood').textContent = blood;
-      document.getElementById('viewContact').textContent = contact;
-      document.getElementById('viewIdDetail').textContent = id;
-      document.getElementById('viewNotes').textContent = notes;
-      document.getElementById('viewAvatar').textContent = name.charAt(0).toUpperCase();
-      document.getElementById('dashPatientName').textContent = name;
-      
-      // Close modal
-      document.getElementById('patientModal').classList.remove('open');
-      
-      // Show save message
-      const msg = document.getElementById('saveMsg');
-      msg.textContent = '✅ Patient data saved successfully!';
-      setTimeout(() => { msg.textContent = ''; }, 3000);
-    });
-
-    // ================= CLEAR PATIENT =================
-    document.getElementById('btnClearPatient').addEventListener('click', () => {
-      if (!confirm('Clear all patient data?')) return;
-      
-      document.getElementById('inpName').value = '';
-      document.getElementById('inpId').value = '';
-      document.getElementById('inpBed').value = '';
-      document.getElementById('inpWard').value = '';
-      document.getElementById('inpAge').value = '';
-      document.getElementById('inpGender').value = '';
-      document.getElementById('inpBlood').value = '';
-      document.getElementById('inpContact').value = '';
-      document.getElementById('inpNotes').value = '';
-      
-      document.getElementById('viewName').textContent = 'No patient saved';
-      document.getElementById('viewId').textContent = 'No ID';
-      document.getElementById('viewBed').textContent = '--';
-      document.getElementById('viewWard').textContent = '--';
-      document.getElementById('viewAge').textContent = '--';
-      document.getElementById('viewGender').textContent = '--';
-      document.getElementById('viewBlood').textContent = '--';
-      document.getElementById('viewContact').textContent = '--';
-      document.getElementById('viewIdDetail').textContent = '--';
-      document.getElementById('viewNotes').textContent = 'No notes added.';
-      document.getElementById('viewAvatar').textContent = '?';
-      document.getElementById('dashPatientName').textContent = 'Patient Monitor';
-      
-      document.getElementById('patientModal').classList.remove('open');
-    });
-
-    // ================= RESIZE HANDLER =================
-    window.addEventListener('resize', () => {
-      if (document.getElementById('page-dashboard').classList.contains('active')) {
-        setTimeout(() => drawECG(ecgBuffer), 100);
-      }
-    });
-
-    // ================= INIT =================
+ 
+    // ============================================================
+    // INIT
+    // ============================================================
     document.addEventListener('DOMContentLoaded', () => {
-      // Initialize ECG buffer
-      ecgBuffer = Array(ECG_BUFFER_SIZE).fill(0);
-      
-      // Connect to MQTT
+      pressureBuffer = Array(PRESSURE_BUFFER_SIZE).fill(0);
       connectMQTT();
-      
-      // Update clock
       setInterval(() => {
         const now = new Date();
-        document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+        document.getElementById('clock').textContent = now.toLocaleTimeString('id-ID');
       }, 1000);
-      
-      // Initial draw
-      setTimeout(() => drawECG(ecgBuffer), 200);
+      setTimeout(() => drawECG(pressureBuffer), 200);
     });
-
-    // Reconnect on tab visibility change
+ 
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && !isConnected) {
         console.log('Tab active, reconnecting...');
         connectMQTT();
       }
     });
-
-    // ================= COMMAND FUNCTIONS FOR BUTTONS =================
-    // Tambahkan fungsi global untuk tombol di dashboard
+ 
     window.sendCommand = sendCommand;
   </script>
+</body>
+</html>
