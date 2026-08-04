@@ -1589,7 +1589,7 @@
                         <span class="badge watch" id="tempBadge">TUNGGU</span>
                       </div>
                       <div class="med-compact-value" id="bodyTempWrap"><span id="bodyTemp">--</span><span class="med-unit">&deg;C</span></div>
-                      <div class="med-range">Normal: 36.1 – 37.2 °C</div>
+                      <div class="med-range">Normal: 36.5 – 37.5 °C</div>
                       <div class="bar med-bar"><div class="bar-fill" id="bodyTempBar" style="width:6%"></div></div>
                     </div>
                   </div>
@@ -1921,7 +1921,7 @@
                         <span class="alert-pill info" id="alertPill4">INFO</span>
                       </div>
                       <p id="alertMsg4">Memantau suhu tubuh...</p>
-                      <p class="alert-tip" id="alertTip4">Normal: 36.1–37.2 &deg;C.</p>
+                      <p class="alert-tip" id="alertTip4">Normal: 36.5–37.5 &deg;C.</p>
                     </div>
                   </div>
                 </div>
@@ -2013,6 +2013,69 @@
     let logInterval = null;
  
     // ============================================================
+    // KONDISI DARI GAMBAR
+    // ============================================================
+    const HEALTH_RANGES = {
+      heartRate: { normalMin: 60, normalMax: 100, label: 'BPM' },
+      spo2: { normalMin: 95, normalMax: 100, label: '%' },
+      temperature: { normalMin: 36.5, normalMax: 37.5, label: '°C' },
+      systolic: { normalMin: 90, normalMax: 120, label: 'mmHg' },
+      diastolic: { normalMin: 60, normalMax: 80, label: 'mmHg' }
+    };
+ 
+    // ============================================================
+    // CEK STATUS KESEHATAN - BERDASARKAN KONDISI DARI GAMBAR
+    // ============================================================
+    function checkHealthStatus(data) {
+      let isMedicalAttentionNeeded = false;
+      let warnings = [];
+      
+      // Heart Rate (HR): Normal 60-100 BPM, Butuh Tindakan Medis <60 atau >100
+      if (data.heartRate !== undefined && data.heartRate > 0) {
+        if (data.heartRate < 60 || data.heartRate > 100) {
+          isMedicalAttentionNeeded = true;
+          warnings.push('HR ' + (data.heartRate < 60 ? 'Rendah' : 'Tinggi') + ' (' + data.heartRate + ' BPM)');
+        }
+      }
+      
+      // Saturasi Oksigen (SpO2): Normal 95-100%, Butuh Tindakan Medis <95%
+      if (data.spo2 !== undefined && data.spo2 > 0) {
+        if (data.spo2 < 95) {
+          isMedicalAttentionNeeded = true;
+          warnings.push('SpO2 Rendah (' + data.spo2 + '%)');
+        }
+      }
+      
+      // Suhu Tubuh: Normal 36.5-37.5°C, Butuh Tindakan Medis <36.5 atau >37.5
+      if (data.temperature !== undefined && data.temperature > 0) {
+        if (data.temperature < 36.5 || data.temperature > 37.5) {
+          isMedicalAttentionNeeded = true;
+          warnings.push('Suhu ' + (data.temperature < 36.5 ? 'Rendah' : 'Tinggi') + ' (' + data.temperature.toFixed(1) + '°C)');
+        }
+      }
+      
+      // Tekanan Darah: Normal SYS 90-120 dan DIA 60-80, Butuh Tindakan Medis jika di luar rentang
+      if (data.systolic !== undefined && data.systolic > 0) {
+        if (data.systolic < 90 || data.systolic > 120) {
+          isMedicalAttentionNeeded = true;
+          warnings.push('Sistolik ' + data.systolic + ' mmHg');
+        }
+      }
+      if (data.diastolic !== undefined && data.diastolic > 0) {
+        if (data.diastolic < 60 || data.diastolic > 80) {
+          isMedicalAttentionNeeded = true;
+          warnings.push('Diastolik ' + data.diastolic + ' mmHg');
+        }
+      }
+      
+      return { 
+        status: isMedicalAttentionNeeded ? 'BUTUH TINDAKAN MEDIS' : 'AMAN',
+        warnings: warnings,
+        isMedicalAttentionNeeded: isMedicalAttentionNeeded
+      };
+    }
+ 
+    // ============================================================
     // MQTT FUNCTIONS
     // ============================================================
     function connectMQTT() {
@@ -2073,36 +2136,30 @@
     }
  
     // ============================================================
-    // CEK STATUS KESEHATAN
+    // UPDATE FUNCTIONS - DENGAN KONDISI DARI GAMBAR
     // ============================================================
-    function checkHealthStatus(data) {
-      let status = 'AMAN';
-      let warnings = [];
-      if (data.heartRate !== undefined && data.heartRate > 0) {
-        if (data.heartRate < 60 || data.heartRate > 100) {
-          status = 'BUTUH PERAWATAN';
-          warnings.push('HR ' + (data.heartRate < 60 ? 'Rendah' : 'Tinggi') + ' (' + data.heartRate + ' BPM)');
-        }
+    function updateBadge(elementId, value, range) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      if (value === undefined || value === null || value === 0) {
+        el.textContent = 'TUNGGU';
+        el.className = 'badge watch';
+        return;
       }
-      if (data.spo2 !== undefined && data.spo2 > 0) {
-        if (data.spo2 < 95) {
-          status = 'BUTUH PERAWATAN';
-          warnings.push('SpO2 Rendah (' + data.spo2 + '%)');
-        }
+      if (value >= range.normalMin && value <= range.normalMax) {
+        el.textContent = 'AMAN';
+        el.className = 'badge good';
+      } else {
+        el.textContent = 'BUTUH TINDAKAN';
+        el.className = 'badge bad';
       }
-      if (data.temperature !== undefined && data.temperature > 0) {
-        if (data.temperature < 36.1 || data.temperature > 37.2) {
-          status = 'BUTUH PERAWATAN';
-          warnings.push('Suhu ' + (data.temperature < 36.1 ? 'Rendah' : 'Tinggi') + ' (' + data.temperature.toFixed(1) + '°C)');
-        }
-      }
-      if (data.systolic !== undefined && data.systolic > 0 && data.diastolic !== undefined && data.diastolic > 0) {
-        if (data.systolic < 90 || data.systolic > 120 || data.diastolic < 60 || data.diastolic > 80) {
-          status = 'BUTUH PERAWATAN';
-          warnings.push('Tekanan Darah ' + data.systolic + '/' + data.diastolic + ' mmHg');
-        }
-      }
-      return { status, warnings };
+    }
+ 
+    function updateBar(elementId, value, min, max) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      const percentage = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+      el.style.width = percentage + '%';
     }
  
     // ============================================================
@@ -2116,8 +2173,8 @@
         if (data.heartRate !== undefined && data.heartRate > 0) {
           lastValues.heartRate = data.heartRate;
           document.getElementById('bpm').textContent = data.heartRate;
-          updateBadge('bpmBadge', data.heartRate, 60, 100);
-          updateBar('bpmBar', data.heartRate, 60, 200);
+          updateBadge('bpmBadge', data.heartRate, HEALTH_RANGES.heartRate);
+          updateBar('bpmBar', data.heartRate, 0, 200);
           const heartIcon = document.getElementById('heartIcon');
           if (heartIcon) {
             heartIcon.style.setProperty('--beat-dur', (60 / data.heartRate) + 's');
@@ -2129,7 +2186,7 @@
         if (data.spo2 !== undefined && data.spo2 > 0) {
           lastValues.spo2 = data.spo2;
           document.getElementById('spo2').textContent = data.spo2;
-          updateBadge('spo2Badge', data.spo2, 95, 100);
+          updateBadge('spo2Badge', data.spo2, HEALTH_RANGES.spo2);
           updateBar('spo2Bar', data.spo2, 70, 100);
         }
  
@@ -2137,24 +2194,24 @@
         if (data.temperature !== undefined && data.temperature > 0) {
           lastValues.temperature = data.temperature;
           document.getElementById('bodyTemp').textContent = data.temperature.toFixed(1);
-          updateBadge('tempBadge', data.temperature, 36.1, 37.2);
-          updateBar('bodyTempBar', data.temperature, 35, 39);
+          updateBadge('tempBadge', data.temperature, HEALTH_RANGES.temperature);
+          updateBar('bodyTempBar', data.temperature, 34, 40);
         }
  
         // Sistolik
         if (data.systolic !== undefined && data.systolic > 0) {
           lastValues.systolic = data.systolic;
           document.getElementById('sysValue').textContent = data.systolic;
-          updateBadge('sysBadge', data.systolic, 90, 120);
-          updateBar('sysBar', data.systolic, 60, 200);
+          updateBadge('sysBadge', data.systolic, HEALTH_RANGES.systolic);
+          updateBar('sysBar', data.systolic, 40, 200);
         }
  
         // Diastolik
         if (data.diastolic !== undefined && data.diastolic > 0) {
           lastValues.diastolic = data.diastolic;
           document.getElementById('diaValue').textContent = data.diastolic;
-          updateBadge('diaBadge', data.diastolic, 60, 80);
-          updateBar('diaBar', data.diastolic, 40, 120);
+          updateBadge('diaBadge', data.diastolic, HEALTH_RANGES.diastolic);
+          updateBar('diaBar', data.diastolic, 30, 120);
         }
  
         // mmHg Live - Grafik Tekanan Manset
@@ -2177,33 +2234,6 @@
       } catch (err) {
         console.error('Parse error:', err);
       }
-    }
- 
-    // ============================================================
-    // UPDATE FUNCTIONS
-    // ============================================================
-    function updateBadge(elementId, value, min, max) {
-      const el = document.getElementById(elementId);
-      if (!el) return;
-      if (value === undefined || value === null || value === 0) {
-        el.textContent = 'TUNGGU';
-        el.className = 'badge watch';
-        return;
-      }
-      if (value >= min && value <= max) {
-        el.textContent = 'AMAN';
-        el.className = 'badge good';
-      } else {
-        el.textContent = 'PERAWATAN';
-        el.className = 'badge bad';
-      }
-    }
- 
-    function updateBar(elementId, value, min, max) {
-      const el = document.getElementById(elementId);
-      if (!el) return;
-      const percentage = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
-      el.style.width = percentage + '%';
     }
  
     // ============================================================
@@ -2311,12 +2341,12 @@
     }
  
     // ============================================================
-    // ALERTS
+    // ALERTS - DENGAN KONDISI DARI GAMBAR
     // ============================================================
     function updateAlerts(data, health) {
       let warnCount = 0, okCount = 0, infoCount = 0;
  
-      // Heart Rate
+      // Heart Rate - Kondisi dari gambar
       if (data.heartRate !== undefined && data.heartRate > 0) {
         const hr = data.heartRate;
         const row = document.getElementById('alertRow1');
@@ -2324,18 +2354,64 @@
           row.className = 'alert-row alert-ok glass';
           document.getElementById('alertPill1').textContent = 'AMAN';
           document.getElementById('alertPill1').className = 'alert-pill ok';
-          document.getElementById('alertMsg1').textContent = `Detak jantung: ${hr} BPM (Normal)`;
+          document.getElementById('alertMsg1').textContent = `HR: ${hr} BPM (Normal 60-100 BPM)`;
+          document.getElementById('alertTip1').textContent = '✅ Dalam batas normal.';
           okCount++;
         } else {
           row.className = 'alert-row alert-bad glass';
-          document.getElementById('alertPill1').textContent = 'PERAWATAN';
+          document.getElementById('alertPill1').textContent = 'BUTUH TINDAKAN';
           document.getElementById('alertPill1').className = 'alert-pill bad';
-          document.getElementById('alertMsg1').textContent = `Detak jantung: ${hr} BPM (${hr < 60 ? 'Bradikardia' : 'Takikardia'})`;
+          const condition = hr < 60 ? 'Bradikardia' : 'Takikardia';
+          document.getElementById('alertMsg1').textContent = `HR: ${hr} BPM (${condition}) - Perlu tindakan medis!`;
+          document.getElementById('alertTip1').textContent = `⚠️ HR ${hr < 60 ? '<60' : '>100'} BPM - Butuh tindakan medis.`;
           warnCount++;
         }
       } else infoCount++;
  
-      // Blood Pressure
+      // SpO2 - Kondisi dari gambar
+      if (data.spo2 !== undefined && data.spo2 > 0) {
+        const spo2 = data.spo2;
+        const row = document.getElementById('alertRow3');
+        if (spo2 >= 95) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById('alertPill3').textContent = 'AMAN';
+          document.getElementById('alertPill3').className = 'alert-pill ok';
+          document.getElementById('alertMsg3').textContent = `SpO2: ${spo2}% (Normal ≥95%)`;
+          document.getElementById('alertTip3').textContent = '✅ Saturasi oksigen dalam batas normal.';
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-bad glass';
+          document.getElementById('alertPill3').textContent = 'BUTUH TINDAKAN';
+          document.getElementById('alertPill3').className = 'alert-pill bad';
+          document.getElementById('alertMsg3').textContent = `SpO2: ${spo2}% (Hipoksemia) - Perlu tindakan medis!`;
+          document.getElementById('alertTip3').textContent = `⚠️ SpO2 <95% - Butuh tindakan medis.`;
+          warnCount++;
+        }
+      } else infoCount++;
+ 
+      // Temperature - Kondisi dari gambar
+      if (data.temperature !== undefined && data.temperature > 0) {
+        const temp = data.temperature;
+        const row = document.getElementById('alertRow4');
+        if (temp >= 36.5 && temp <= 37.5) {
+          row.className = 'alert-row alert-ok glass';
+          document.getElementById('alertPill4').textContent = 'AMAN';
+          document.getElementById('alertPill4').className = 'alert-pill ok';
+          document.getElementById('alertMsg4').textContent = `Suhu: ${temp.toFixed(1)}°C (Normal 36.5-37.5°C)`;
+          document.getElementById('alertTip4').textContent = '✅ Suhu dalam batas normal.';
+          okCount++;
+        } else {
+          row.className = 'alert-row alert-bad glass';
+          document.getElementById('alertPill4').textContent = 'BUTUH TINDAKAN';
+          document.getElementById('alertPill4').className = 'alert-pill bad';
+          const condition = temp < 36.5 ? 'Hipotermia' : 'Demam';
+          document.getElementById('alertMsg4').textContent = `Suhu: ${temp.toFixed(1)}°C (${condition}) - Perlu tindakan medis!`;
+          document.getElementById('alertTip4').textContent = `⚠️ Suhu ${temp < 36.5 ? '<36.5' : '>37.5'}°C - Butuh tindakan medis.`;
+          warnCount++;
+        }
+      } else infoCount++;
+ 
+      // Blood Pressure - Kondisi dari gambar
       if (data.systolic !== undefined && data.systolic > 0 && data.diastolic !== undefined && data.diastolic > 0) {
         const sys = data.systolic, dia = data.diastolic;
         const row = document.getElementById('alertRow2');
@@ -2344,80 +2420,52 @@
           row.className = 'alert-row alert-ok glass';
           document.getElementById('alertPill2').textContent = 'AMAN';
           document.getElementById('alertPill2').className = 'alert-pill ok';
-          document.getElementById('alertMsg2').textContent = `TD: ${sys}/${dia} mmHg (Normal)`;
+          document.getElementById('alertMsg2').textContent = `TD: ${sys}/${dia} mmHg (Normal 90-120/60-80)`;
+          document.getElementById('alertTip2').textContent = '✅ Tekanan darah dalam batas normal.';
           okCount++;
         } else {
           row.className = 'alert-row alert-bad glass';
-          document.getElementById('alertPill2').textContent = 'PERAWATAN';
+          document.getElementById('alertPill2').textContent = 'BUTUH TINDAKAN';
           document.getElementById('alertPill2').className = 'alert-pill bad';
-          document.getElementById('alertMsg2').textContent = `TD: ${sys}/${dia} mmHg (${sys > 120 ? 'Hipertensi' : sys < 90 ? 'Hipotensi' : 'Abnormal'})`;
+          let condition = '';
+          if (sys > 120) condition = 'Hipertensi';
+          else if (sys < 90) condition = 'Hipotensi';
+          else condition = 'Abnormal';
+          document.getElementById('alertMsg2').textContent = `TD: ${sys}/${dia} mmHg (${condition}) - Perlu tindakan medis!`;
+          document.getElementById('alertTip2').textContent = `⚠️ TD ${sys<90||sys>120||dia<60||dia>80 ? 'di luar rentang normal' : 'abnormal'} - Butuh tindakan medis.`;
           warnCount++;
         }
       } else infoCount++;
  
-      // SpO2
-      if (data.spo2 !== undefined && data.spo2 > 0) {
-        const spo2 = data.spo2;
-        const row = document.getElementById('alertRow3');
-        if (spo2 >= 95) {
-          row.className = 'alert-row alert-ok glass';
-          document.getElementById('alertPill3').textContent = 'AMAN';
-          document.getElementById('alertPill3').className = 'alert-pill ok';
-          document.getElementById('alertMsg3').textContent = `SpO2: ${spo2}% (Normal)`;
-          okCount++;
-        } else {
-          row.className = 'alert-row alert-bad glass';
-          document.getElementById('alertPill3').textContent = 'PERAWATAN';
-          document.getElementById('alertPill3').className = 'alert-pill bad';
-          document.getElementById('alertMsg3').textContent = `SpO2: ${spo2}% (Hipoksemia)`;
-          warnCount++;
-        }
-      } else infoCount++;
- 
-      // Temperature
-      if (data.temperature !== undefined && data.temperature > 0) {
-        const temp = data.temperature;
-        const row = document.getElementById('alertRow4');
-        if (temp >= 36.1 && temp <= 37.2) {
-          row.className = 'alert-row alert-ok glass';
-          document.getElementById('alertPill4').textContent = 'AMAN';
-          document.getElementById('alertPill4').className = 'alert-pill ok';
-          document.getElementById('alertMsg4').textContent = `Suhu: ${temp.toFixed(1)}°C (Normal)`;
-          okCount++;
-        } else {
-          row.className = 'alert-row alert-bad glass';
-          document.getElementById('alertPill4').textContent = 'PERAWATAN';
-          document.getElementById('alertPill4').className = 'alert-pill bad';
-          document.getElementById('alertMsg4').textContent = `Suhu: ${temp.toFixed(1)}°C (${temp < 36.1 ? 'Hipotermia' : 'Demam'})`;
-          warnCount++;
-        }
-      } else infoCount++;
- 
+      // Update counters
       document.getElementById('alertWarnCount').textContent = warnCount;
       document.getElementById('alertOkCount').textContent = okCount;
       document.getElementById('alertInfoCount').textContent = infoCount;
  
+      // Update main badge
       const badge = document.getElementById('alertBadge');
-      if (health && health.status === 'BUTUH PERAWATAN') {
-        badge.textContent = '⚠️ PERAWATAN';
+      if (health && health.isMedicalAttentionNeeded) {
+        badge.textContent = '⚠️ BUTUH TINDAKAN MEDIS';
         badge.className = 'alerts-status-badge bad';
         const suggestions = document.getElementById('alertSuggestions');
         let html = '';
-        for (const warning of health.warnings) html += `<li>⚠️ ${warning} - Perlu evaluasi medis</li>`;
+        for (const warning of health.warnings) {
+          html += `<li>⚠️ ${warning} - Butuh tindakan medis</li>`;
+        }
         if (html === '') html = '<li>✅ Semua parameter dalam batas normal</li>';
         suggestions.innerHTML = html;
       } else if (okCount > 0) {
         badge.textContent = '✅ AMAN';
         badge.className = 'alerts-status-badge good';
-        document.getElementById('alertSuggestions').innerHTML = '<li>✅ Semua parameter dalam batas normal. Pasien dalam kondisi baik.</li>';
+        document.getElementById('alertSuggestions').innerHTML = '<li>✅ Semua parameter dalam batas normal sesuai tabel referensi.</li>';
       } else {
-        badge.textContent = '⏳ MENUNGGU';
+        badge.textContent = '⏳ MENUNGGU DATA';
         badge.className = 'alerts-status-badge info';
       }
     }
  
     // ============================================================
-    // LOG DATA
+    // LOG DATA - DENGAN STATUS DARI KONDISI GAMBAR
     // ============================================================
     function addLogEntry(data, health) {
       const now = new Date();
@@ -2428,7 +2476,7 @@
       const sys = data.systolic || lastValues.systolic || 0;
       const dia = data.diastolic || lastValues.diastolic || 0;
       if (hr === 0 && spo2 === 0 && temp === 0 && sys === 0 && dia === 0) return;
-      const status = (health && health.status) || 'AMAN';
+      const status = (health && health.isMedicalAttentionNeeded) ? 'BUTUH TINDAKAN MEDIS' : 'AMAN';
       logCounter++;
       logData.push({ no: logCounter, time: timeStr, bpm: hr, spo2: spo2, bodyTemp: temp, sys: sys, dia: dia, status: status });
       if (logData.length > 50) logData.shift();
